@@ -1,6 +1,6 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
-const { sendOrderNotification } = require('../services/whatsappService');
+const { sendOrderNotification, sendCustomerConfirmation, sendOrderStatusUpdate } = require('../services/whatsappService');
 const { createPaymentPreference } = require('../services/mercadopagoService');
 
 const DELIVERY_FEE = 0;
@@ -209,6 +209,12 @@ exports.createOrder = async (req, res) => {
       console.error('Error enviando notificación WhatsApp:', waError.message);
     }
 
+    try {
+      await sendCustomerConfirmation(order);
+    } catch (waError) {
+      console.error('Error enviando confirmación al cliente:', waError.message);
+    }
+
     const response = {
       success: true,
       data: {
@@ -272,6 +278,14 @@ exports.updateOrderStatus = async (req, res) => {
         success: false,
         message: 'Pedido no encontrado',
       });
+    }
+
+    if (orderStatus) {
+      try {
+        await sendOrderStatusUpdate(order);
+      } catch (waError) {
+        console.error('Error enviando notificación de estado al cliente:', waError.message);
+      }
     }
 
     return res.json({ success: true, data: order });

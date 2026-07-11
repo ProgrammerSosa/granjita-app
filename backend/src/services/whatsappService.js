@@ -207,6 +207,71 @@ function formatOrderMessage(order) {
   );
 }
 
+function formatCustomerConfirmation(order) {
+  const itemsList = order.items
+    .map(
+      (item) =>
+        `  ${item.quantity}x ${item.productName}` +
+        (item.variant?.name ? ` (${item.variant.name})` : '') +
+        (item.extras?.length > 0
+          ? ` + ${item.extras.map((e) => e.name).join(', ')}`
+          : '') +
+        ` ... Q${item.subtotal.toLocaleString('es-GT')}`
+    )
+    .join('\n');
+
+  const paymentText = order.paymentMethod === 'cash' ? '💵 Efectivo al delivery' : '💳 Pago con tarjeta';
+
+  return (
+    `╔══════════════════════════════╗\n` +
+    `║   🐔 *CONFIRMACIÓN DE PEDIDO*  ║\n` +
+    `║          *GRANJITA*              ║\n` +
+    `╚══════════════════════════════╝\n\n` +
+    `Hola *${order.customer.name}*, tu pedido fue recibido correctamente.\n\n` +
+    `📋 *Tu pedido #${order._id.toString().slice(-6).toUpperCase()}:*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${itemsList}\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `💰 *Subtotal:* Q${order.subtotal.toLocaleString('es-GT')}\n` +
+    `🚚 *Envío:* ${order.deliveryFee > 0 ? 'Q' + order.deliveryFee.toLocaleString('es-GT') : 'Gratis'}\n` +
+    `💵 *TOTAL:* Q${order.total.toLocaleString('es-GT')}\n` +
+    `💳 *Método de pago:* ${paymentText}\n` +
+    `📍 *Dirección:* ${order.customer.address}\n\n` +
+    `⏳ *Estado:* Pendiente\n\n` +
+    `Te notificaremos cuando tu pedido sea confirmado y salga en camino. 🛵\n\n` +
+    `Si tenés alguna consulta, escribinos por este mismo chat.\n` +
+    `¡Gracias por preferirnos! 💚`
+  );
+}
+
+function formatStatusUpdate(order) {
+  const statusInfo = {
+    pending: { emoji: '⏳', text: 'Pendiente', desc: 'Tu pedido está en cola, lo procesaremos pronto.' },
+    confirmed: { emoji: '✅', text: 'Confirmado', desc: 'Tu pedido fue confirmado. ¡Preparándolo!' },
+    preparing: { emoji: '👨‍🍳', text: 'En preparación', desc: 'Tu pedido se está preparando con cariño.' },
+    in_transit: { emoji: '🛵', text: 'En camino', desc: '¡Tu pedido va en camino! Estate atento/a a la puerta.' },
+    delivered: { emoji: '🎉', text: 'Entregado', desc: 'Tu pedido fue entregado. ¡Esperamos que lo disfrutes!' },
+    cancelled: { emoji: '❌', text: 'Cancelado', desc: 'Lamentablemente tu pedido fue cancelado. Si tenés dudas, escribinos.' },
+  };
+
+  const info = statusInfo[order.orderStatus] || { emoji: '📋', text: order.orderStatus, desc: '' };
+  const paymentText = order.paymentMethod === 'cash' ? '💵 Efectivo' : '💳 Tarjeta';
+
+  return (
+    `╔══════════════════════════════╗\n` +
+    `║  ${info.emoji} *ACTUALIZACIÓN DE PEDIDO*  ║\n` +
+    `║           *GRANJITA*            ║\n` +
+    `╚══════════════════════════════╝\n\n` +
+    `Hola *${order.customer.name}*, tu pedido #${order._id.toString().slice(-6).toUpperCase()} fue actualizado:\n\n` +
+    `${info.emoji} *Estado:* ${info.text}\n` +
+    `${info.desc}\n\n` +
+    `💵 *TOTAL:* Q${order.total.toLocaleString('es-GT')}\n` +
+    `💳 *Pago:* ${paymentText}\n\n` +
+    `Si tenés alguna consulta, escribinos por este mismo chat.\n` +
+    `¡Gracias por preferirnos! 💚`
+  );
+}
+
 function getStatusText(status) {
   const map = {
     pending: 'Pendiente',
@@ -241,6 +306,50 @@ async function sendOrderNotification(order) {
   }
 }
 
+async function sendCustomerConfirmation(order) {
+  if (!client || !isReady) {
+    console.warn('WhatsApp no disponible. Confirmación al cliente no enviada.');
+    return;
+  }
+
+  const phone = order.customer?.phone;
+  if (!phone) {
+    console.warn('Teléfono del cliente no disponible. Omitiendo confirmación.');
+    return;
+  }
+
+  try {
+    const formattedNumber = `${phone}@c.us`;
+    const message = formatCustomerConfirmation(order);
+    await client.sendMessage(formattedNumber, message);
+    console.log(`✅ Confirmación enviada al cliente ${phone} para pedido #${order._id.toString().slice(-6).toUpperCase()}`);
+  } catch (error) {
+    console.error(`Error enviando confirmación al cliente:`, error.message);
+  }
+}
+
+async function sendOrderStatusUpdate(order) {
+  if (!client || !isReady) {
+    console.warn('WhatsApp no disponible. Notificación de estado no enviada.');
+    return;
+  }
+
+  const phone = order.customer?.phone;
+  if (!phone) {
+    console.warn('Teléfono del cliente no disponible. Omitiendo notificación de estado.');
+    return;
+  }
+
+  try {
+    const formattedNumber = `${phone}@c.us`;
+    const message = formatStatusUpdate(order);
+    await client.sendMessage(formattedNumber, message);
+    console.log(`✅ Notificación de estado enviada al cliente ${phone} para pedido #${order._id.toString().slice(-6).toUpperCase()} → ${order.orderStatus}`);
+  } catch (error) {
+    console.error(`Error enviando notificación de estado al cliente:`, error.message);
+  }
+}
+
 async function startWhatsApp() {
   initWhatsApp();
 }
@@ -248,6 +357,8 @@ async function startWhatsApp() {
 module.exports = {
   initWhatsApp,
   sendOrderNotification,
+  sendCustomerConfirmation,
+  sendOrderStatusUpdate,
   startWhatsApp,
   getWhatsAppStatus,
   getCurrentQR,
