@@ -60,11 +60,12 @@ app.get('/api/whatsapp/qr', (_req, res) => {
   if (!qr) {
     const status = getWhatsAppStatus();
     if (status.connected) {
-      return res.json({ message: 'WhatsApp ya está conectado', connected: true });
+      return res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WhatsApp Conectado</title><style>body{display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;font-family:sans-serif;background:#25D366;color:white;text-align:center}.box{padding:40px;border-radius:16px;background:rgba(255,255,255,0.15)}</style></head><body><div class="box"><h1>WhatsApp Conectado</h1><p>La tienda ya esta funcionando</p><p>Esta pagina se puede cerrar</p></div></body></html>');
     }
-    return res.status(404).json({ message: 'QR no disponible aún. Esperá unos segundos y recargá.' });
+    return res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WhatsApp QR</title><style>body{display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;font-family:sans-serif;background:#111b21;color:white;text-align:center}p{color:#8696a0}</style><script>setTimeout(()=>location.reload(),5000)</script></head><body><h2>Esperando QR...</h2><p>Se actualiza cada 5 segundos</p></body></html>');
   }
-  res.json({ qr, connected: false });
+  const qrJSON = JSON.stringify(qr);
+  res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Escanear QR - WhatsApp</title><script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script><style>body{display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;font-family:sans-serif;background:#111b21;color:white;text-align:center;flex-direction:column}.box{padding:30px;border-radius:16px;background:rgba(255,255,255,0.08)}#qr{background:white;padding:16px;border-radius:12px;display:inline-block}h1{font-size:1.3em;margin-bottom:8px}p{color:#8696a0;font-size:0.9em;margin-top:12px}small{color:#8696a0}</style></head><body><div class="box"><h1>Escanea con WhatsApp</h1><p>WhatsApp &gt; Menu &gt; Dispositivos vinculados &gt; Vincular dispositivo</p><div id="qr"></div><p><small>Si no funciona, recarga la pagina.</small></p></div><script>var qrData=' + qrJSON + ';QRCode.toCanvas(document.createElement("canvas"),qrData,{width:280,margin:2},function(err,canvas){if(!err)document.getElementById("qr").appendChild(canvas)})</script></body></html>');
 });
 
 app.use((err, _req, res, _next) => {
