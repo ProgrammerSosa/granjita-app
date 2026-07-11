@@ -3,7 +3,7 @@ services:
     name: granjita-backend
     runtime: node
     rootDir: backend
-    buildCommand: npm install && PUPPETEER_CACHE_DIR=./.puppeteer npx puppeteer browsers install chrome
+    buildCommand: npm install
     startCommand: node server.js
     envVars:
       - key: NODE_ENV
