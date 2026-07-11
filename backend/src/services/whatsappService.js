@@ -1,6 +1,5 @@
-const { Client, RemoteAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const sessionStore = require('./sessionStore');
 
 let client = null;
 let isReady = false;
@@ -14,8 +13,8 @@ const STORE_URL = process.env.STORE_URL || 'https://granjita-frontend.vercel.app
 
 console.log(`[WhatsApp] AUTO_REPLY_ENABLED = ${AUTO_REPLY_ENABLED} (env: "${process.env.WHATSAPP_AUTO_REPLY}")`);
 console.log(`[WhatsApp] STORE_URL = ${STORE_URL}`);
-console.log(`[WhatsApp] Versión: whatsapp-web.js v1.34.7 (GitHub latest)`);
-console.log(`[WhatsApp] Auth: RemoteAuth (MongoDB)`);
+console.log(`[WhatsApp] Versión: whatsapp-web.js v1.25.0`);
+console.log(`[WhatsApp] Auth: LocalAuth`);
 
 function getWhatsAppStatus() {
   return {
@@ -73,10 +72,8 @@ function initWhatsApp() {
   }
 
   client = new Client({
-    authStrategy: new RemoteAuth({
-      store: sessionStore,
-      dataPath: './.wwebjs_remote',
-      backupSyncIntervalMs: 60000,
+    authStrategy: new LocalAuth({
+      dataPath: './.wwebjs_auth',
     }),
     puppeteer: puppeteerConfig,
   });
