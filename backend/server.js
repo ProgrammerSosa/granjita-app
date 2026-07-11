@@ -12,7 +12,7 @@ const orderRoutes = require('./src/routes/orderRoutes');
 const uploadRoutes = require('./src/routes/uploadRoutes');
 const authRoutes = require('./src/routes/authRoutes');
 const QRCode = require('qrcode');
-const { startWhatsApp, getWhatsAppStatus, getCurrentQR } = require('./src/services/whatsappService');
+const { startWhatsApp, getWhatsAppStatus, getCurrentQR, sendTestMessage } = require('./src/services/whatsappService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -59,6 +59,19 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/whatsapp/status', (_req, res) => {
   const status = getWhatsAppStatus();
   res.json(status);
+});
+
+app.get('/api/whatsapp/test', async (_req, res) => {
+  const ownerNumber = process.env.OWNER_WHATSAPP;
+  if (!ownerNumber) {
+    return res.status(400).json({ success: false, message: 'OWNER_WHATSAPP no configurado' });
+  }
+  try {
+    await sendTestMessage(ownerNumber);
+    res.json({ success: true, message: `Mensaje de prueba enviado a ${ownerNumber}` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 app.get('/', async (_req, res) => {

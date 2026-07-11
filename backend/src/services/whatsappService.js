@@ -9,7 +9,10 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY = 10000;
 
 const AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY === 'true';
-const STORE_URL = process.env.STORE_URL || 'http://localhost:3000';
+const STORE_URL = process.env.STORE_URL || 'https://granjita-frontend.vercel.app';
+
+console.log(`[WhatsApp] AUTO_REPLY_ENABLED = ${AUTO_REPLY_ENABLED} (env: "${process.env.WHATSAPP_AUTO_REPLY}")`);
+console.log(`[WhatsApp] STORE_URL = ${STORE_URL}`);
 
 function getWhatsAppStatus() {
   return {
@@ -114,6 +117,7 @@ function initWhatsApp() {
 
       const body = msg.body.trim();
       console.log(`📱 Mensaje recibido de ${msg.from}: "${body.substring(0, 80)}${body.length > 80 ? '...' : ''}"`);
+      console.log(`📱 AUTO_REPLY_ENABLED = ${AUTO_REPLY_ENABLED}`);
 
       if (!AUTO_REPLY_ENABLED) {
         console.log(`📱 [MODO PRUEBA] Se enviaría auto-reply pero está desactivado`);
@@ -121,10 +125,12 @@ function initWhatsApp() {
       }
 
       const reply = generateGreeting();
+      console.log(`📱 Enviando auto-reply a ${msg.from}...`);
       await msg.reply(reply);
       console.log(`✅ Auto-reply enviado a ${msg.from}`);
     } catch (error) {
       console.error(`❌ Error procesando mensaje de ${msg.from}:`, error.message);
+      console.error(`❌ Stack:`, error.stack);
     }
   });
 
@@ -354,11 +360,21 @@ async function startWhatsApp() {
   initWhatsApp();
 }
 
+async function sendTestMessage(toNumber) {
+  if (!client || !isReady) {
+    throw new Error('WhatsApp no está conectado');
+  }
+  const formattedNumber = `${toNumber}@c.us`;
+  await client.sendMessage(formattedNumber, '🐔 *Mensaje de prueba* 🐔\n\nSi ves este mensaje, WhatsApp está funcionando correctamente en GRANJITA.');
+  console.log(`✅ Mensaje de prueba enviado a ${toNumber}`);
+}
+
 module.exports = {
   initWhatsApp,
   sendOrderNotification,
   sendCustomerConfirmation,
   sendOrderStatusUpdate,
+  sendTestMessage,
   startWhatsApp,
   getWhatsAppStatus,
   getCurrentQR,
