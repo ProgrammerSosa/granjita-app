@@ -7,6 +7,7 @@ build/
 # WhatsApp session (se regenera al reconectar)
 backend/.wwebjs_auth/
 backend/.wwebjs_cache/
+backend/.wwebjs_remote/
 
 # Environment files (se configuran en Railway/Vercel)
 backend/.env

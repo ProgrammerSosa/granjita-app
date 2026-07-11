@@ -1,5 +1,6 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, RemoteAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const sessionStore = require('./sessionStore');
 
 let client = null;
 let isReady = false;
@@ -13,6 +14,8 @@ const STORE_URL = process.env.STORE_URL || 'https://granjita-frontend.vercel.app
 
 console.log(`[WhatsApp] AUTO_REPLY_ENABLED = ${AUTO_REPLY_ENABLED} (env: "${process.env.WHATSAPP_AUTO_REPLY}")`);
 console.log(`[WhatsApp] STORE_URL = ${STORE_URL}`);
+console.log(`[WhatsApp] Versión: whatsapp-web.js v1.34.7 (GitHub latest)`);
+console.log(`[WhatsApp] Auth: RemoteAuth (MongoDB)`);
 
 function getWhatsAppStatus() {
   return {
@@ -66,11 +69,14 @@ function initWhatsApp() {
   };
   if (chromePath) {
     puppeteerConfig.executablePath = chromePath;
-    console.log(`🔍 Chrome encontrado en: ${chromePath}`);
+    console.log(`[WhatsApp] Chrome encontrado: ${chromePath}`);
   }
 
   client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new RemoteAuth({
+      store: sessionStore,
+      dataPath: './.wwebjs_remote',
+    }),
     puppeteer: puppeteerConfig,
   });
 
@@ -100,6 +106,24 @@ function initWhatsApp() {
     isReady = false;
     client = null;
     scheduleReconnect();
+  });
+
+  client.on('error', (err) => {
+    console.error('❌ WhatsApp error:', err.message);
+    if (err.message.includes('EBR') || err.message.includes('detached') || err.message.includes('Protocol')) {
+      console.error('❌ Error fatal, reconectando...');
+      isReady = false;
+      client = null;
+      scheduleReconnect();
+    }
+  });
+
+  client.on('loading_screen', (percent, message) => {
+    console.log(`[WhatsApp] Cargando: ${percent}% - ${message}`);
+  });
+
+  client.on('change_state', (state) => {
+    console.log(`[WhatsApp] Estado: ${state}`);
   });
 
   client.on('disconnected', (reason) => {
