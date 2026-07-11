@@ -53,6 +53,8 @@ app.get('/api/health', (_req, res) => {
       reconnectAttempts: waStatus.reconnectAttempts,
       hasQR: waStatus.hasQR,
     },
+    autoReply: process.env.WHATSAPP_AUTO_REPLY || 'NOT_SET',
+    storeUrl: process.env.STORE_URL || 'https://granjita-frontend.vercel.app',
   });
 });
 
