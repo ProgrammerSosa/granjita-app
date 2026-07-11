@@ -56,22 +56,45 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-app.get('/api/whatsapp/qr', async (_req, res) => {
+app.get('/api/whatsapp/status', (_req, res) => {
+  const status = getWhatsAppStatus();
+  res.json(status);
+});
+
+app.get('/', async (_req, res) => {
+  const status = getWhatsAppStatus();
   const qr = getCurrentQR();
-  if (!qr) {
-    const status = getWhatsAppStatus();
-    if (status.connected) {
-      return res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WhatsApp Conectado</title><style>body{display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;font-family:sans-serif;background:#25D366;color:white;text-align:center}.box{padding:40px;border-radius:16px;background:rgba(255,255,255,0.15)}</style></head><body><div class="box"><h1>WhatsApp Conectado</h1><p>La tienda ya esta funcionando</p><p>Esta pagina se puede cerrar</p></div></body></html>');
+
+  let qrSection = '';
+  if (status.connected) {
+    qrSection = '<div class="connected"><span class="dot green"></span> WhatsApp CONECTADO - La tienda esta funcionando</div>';
+  } else if (qr) {
+    try {
+      const dataUrl = await QRCode.toDataURL(qr, { width: 260, margin: 2 });
+      qrSection = '<div class="qr-box"><img src="' + dataUrl + '" width="260" height="260" alt="QR" /></div><div class="hint">Escanea: WhatsApp &gt; Dispositivos vinculados &gt; Vincular dispositivo</div>';
+    } catch (e) {
+      qrSection = '<div class="status-line error">Error generando QR</div>';
     }
-    return res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WhatsApp QR</title><style>body{display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;font-family:sans-serif;background:#111b21;color:white;text-align:center}p{color:#8696a0}</style><script>setTimeout(()=>location.reload(),30000)</script></head><body><h2>Esperando QR...</h2><p>Se actualiza cada 30 segundos</p></body></html>');
+  } else {
+    qrSection = '<div class="status-line">Esperando QR...</div>';
   }
-  try {
-    const dataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
-    res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Escanear QR - WhatsApp</title><style>body{display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;font-family:sans-serif;background:#111b21;color:white;text-align:center;flex-direction:column}.box{padding:30px;border-radius:16px;background:rgba(255,255,255,0.08)}#qr{background:white;padding:16px;border-radius:12px;display:inline-block}h1{font-size:1.3em;margin-bottom:8px}p{color:#8696a0;font-size:0.9em;margin-top:12px}small{color:#8696a0}img{display:block}</style><script>setTimeout(()=>location.reload(),30000)</script></head><body><div class="box"><h1>Escanea con WhatsApp</h1><p>WhatsApp &gt; Menu &gt; Dispositivos vinculados &gt; Vincular dispositivo</p><div id="qr"><img src="' + dataUrl + '" width="300" height="300" alt="QR Code" /></div><p><small>Se actualiza cada 30 segundos. Si no funciona, recarga la pagina.</small></p></div></body></html>');
-  } catch (err) {
-    console.error('Error generando QR:', err);
-    res.status(500).send('Error generando QR');
-  }
+
+  const logLines = [
+    '[SYS] Granjita Backend v1.0',
+    '[DB]  MongoDB ' + (status.connected ? 'conectado' : 'verificando...'),
+    '[WA]  WhatsApp ' + (status.connected ? 'conectado' : 'desconectado'),
+    status.hasQR ? '[QR]  QR listo para escanear' : status.connected ? '[QR]  No necesario - ya conectado' : '[QR]  Generando...',
+    '[SYS] Auto-refresh cada 30s',
+  ];
+
+  const logHTML = logLines.map(l => {
+    let cls = 'log-line';
+    if (l.includes('conectado') && !l.includes('desconectado')) cls += ' ok';
+    if (l.includes('desconectado') || l.includes('error')) cls += ' warn';
+    return '<div class="' + cls + '">' + l + '</div>';
+  }).join('');
+
+  res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Granjita - Panel</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0d1117;color:#c9d1d9;font-family:"Courier New",monospace;min-height:100vh;padding:20px}.header{text-align:center;padding:20px 0;border-bottom:1px solid #21262d;margin-bottom:20px}.header h1{color:#58a6ff;font-size:1.4em}.header small{color:#8b949e}.panel{max-width:600px;margin:0 auto}.terminal{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin:16px 0;max-height:160px;overflow-y:auto}.log-line{color:#8b949e;font-size:0.85em;padding:2px 0}.log-line.ok{color:#3fb950}.log-line.warn{color:#d29922}.qr-section{text-align:center;padding:20px}.qr-box{background:white;padding:16px;border-radius:12px;display:inline-block;margin:12px 0}img{display:block}.connected{color:#3fb950;font-size:1.1em;padding:20px;text-align:center}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}.dot.green{background:#3fb950;box-shadow:0 0 8px #3fb950}.status-line{color:#8b949e;text-align:center;padding:16px;font-size:0.95em}.status-line.error{color:#f85149}.hint{color:#8b949e;font-size:0.8em;text-align:center;margin-top:8px}.footer{text-align:center;color:#484f58;font-size:0.75em;padding:20px 0;border-top:1px solid #21262d;margin-top:20px}</style><script>setTimeout(()=>location.reload(),30000)</script></head><body><div class="panel"><div class="header"><h1>GRANJITA</h1><small>Panel de Control WhatsApp</small></div><div class="qr-section">' + qrSection + '</div><div class="terminal"><div class="log-line" style="color:#58a6ff">--- Log del Sistema ---</div>' + logHTML + '</div><div class="footer">Auto-refresh 30s | Puerto ' + (process.env.PORT || 5000) + '</div></div></body></html>');
 });
 
 app.use((err, _req, res, _next) => {
