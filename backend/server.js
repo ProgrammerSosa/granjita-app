@@ -11,7 +11,7 @@ const productRoutes = require('./src/routes/productRoutes');
 const orderRoutes = require('./src/routes/orderRoutes');
 const uploadRoutes = require('./src/routes/uploadRoutes');
 const authRoutes = require('./src/routes/authRoutes');
-const { startWhatsApp, getWhatsAppStatus } = require('./src/services/whatsappService');
+const { startWhatsApp, getWhatsAppStatus, getCurrentQR } = require('./src/services/whatsappService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -50,8 +50,21 @@ app.get('/api/health', (_req, res) => {
     whatsapp: {
       connected: waStatus.connected,
       reconnectAttempts: waStatus.reconnectAttempts,
+      hasQR: waStatus.hasQR,
     },
   });
+});
+
+app.get('/api/whatsapp/qr', (_req, res) => {
+  const qr = getCurrentQR();
+  if (!qr) {
+    const status = getWhatsAppStatus();
+    if (status.connected) {
+      return res.json({ message: 'WhatsApp ya está conectado', connected: true });
+    }
+    return res.status(404).json({ message: 'QR no disponible aún. Esperá unos segundos y recargá.' });
+  }
+  res.json({ qr, connected: false });
 });
 
 app.use((err, _req, res, _next) => {

@@ -4,6 +4,7 @@ const qrcode = require('qrcode-terminal');
 let client = null;
 let isReady = false;
 let reconnectAttempts = 0;
+let currentQR = null;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY = 10000;
 
@@ -14,7 +15,12 @@ function getWhatsAppStatus() {
   return {
     connected: isReady,
     reconnectAttempts,
+    hasQR: !!currentQR,
   };
+}
+
+function getCurrentQR() {
+  return currentQR;
 }
 
 function initWhatsApp() {
@@ -66,11 +72,13 @@ function initWhatsApp() {
   });
 
   client.on('qr', (qr) => {
+    currentQR = qr;
     console.log('\n========================================');
     console.log(' Escaneá este código QR con WhatsApp:');
     console.log('========================================\n');
     qrcode.generate(qr, { small: true });
     console.log('\nEsperando escaneo...\n');
+    console.log(`📱 QR también disponible en: GET /api/whatsapp/qr`);
   });
 
   client.on('ready', () => {
@@ -81,6 +89,7 @@ function initWhatsApp() {
 
   client.on('authenticated', () => {
     console.log('✅ WhatsApp autenticado');
+    currentQR = null;
   });
 
   client.on('auth_failure', (msg) => {
@@ -241,4 +250,5 @@ module.exports = {
   sendOrderNotification,
   startWhatsApp,
   getWhatsAppStatus,
+  getCurrentQR,
 };
