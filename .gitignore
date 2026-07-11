@@ -1,0 +1,20 @@
+node_modules/
+.next/
+.vercel/
+dist/
+build/
+
+# WhatsApp session (se regenera al reconectar)
+backend/.wwebjs_auth/
+backend/.wwebjs_cache/
+
+# Environment files (se configuran en Railway/Vercel)
+backend/.env
+frontend/.env*
+frontend/.next/
+
+# Uploads
+backend/uploads/
+
+# Logs
+*.log

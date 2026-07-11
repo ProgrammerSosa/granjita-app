@@ -1,0 +1,26 @@
+{
+  "name": "granjita-backend",
+  "version": "1.0.0",
+  "description": "API REST para GRANJITA - Pedidos y catálogo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "mercadopago": "^2.0.15",
+    "mongoose": "^8.6.0",
+    "morgan": "^1.10.0",
+    "multer": "^2.2.0",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.25.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
