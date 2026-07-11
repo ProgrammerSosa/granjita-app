@@ -21,19 +21,27 @@ function initWhatsApp() {
   if (client) return;
 
   const fs = require('fs');
-  const possiblePaths = [
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    '/opt/render/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome',
-    process.env.PUPPETEER_CACHE_DIR ? `${process.env.PUPPETEER_CACHE_DIR}/chrome/chrome-linux64/chrome` : null,
-  ].filter(Boolean);
+  const path = require('path');
 
   let chromePath;
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      chromePath = p;
-      break;
-    }
+  const cacheBase = process.env.PUPPETEER_CACHE_DIR || path.join(process.cwd(), '.cache', 'puppeteer');
+
+  function findChrome(dir) {
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isFile() && entry.name === 'chrome') return fullPath;
+        if (entry.isDirectory()) {
+          const found = findChrome(fullPath);
+          if (found) return found;
+        }
+      }
+    } catch {}
+    return null;
   }
+
+  chromePath = findChrome(cacheBase);
 
   const puppeteerConfig = {
     headless: true,
