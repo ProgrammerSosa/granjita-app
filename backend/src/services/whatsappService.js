@@ -20,23 +20,41 @@ function getWhatsAppStatus() {
 function initWhatsApp() {
   if (client) return;
 
-  const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+  const fs = require('fs');
+  const possiblePaths = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    '/opt/render/.cache/puppeteer/chrome/linux-146.0.7680.31/chrome-linux64/chrome',
+    process.env.PUPPETEER_CACHE_DIR ? `${process.env.PUPPETEER_CACHE_DIR}/chrome/chrome-linux64/chrome` : null,
+  ].filter(Boolean);
+
+  let chromePath;
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      chromePath = p;
+      break;
+    }
+  }
+
+  const puppeteerConfig = {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+    ],
+  };
+  if (chromePath) {
+    puppeteerConfig.executablePath = chromePath;
+    console.log(`🔍 Chrome encontrado en: ${chromePath}`);
+  }
 
   client = new Client({
     authStrategy: new LocalAuth(),
-    puppeteer: {
-      headless: true,
-      ...(chromePath ? { executablePath: chromePath } : {}),
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-      ],
-    },
+    puppeteer: puppeteerConfig,
   });
 
   client.on('qr', (qr) => {
