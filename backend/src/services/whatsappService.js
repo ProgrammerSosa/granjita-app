@@ -24,7 +24,7 @@ function initWhatsApp() {
   const path = require('path');
 
   let chromePath;
-  const cacheBase = process.env.PUPPETEER_CACHE_DIR || path.join(process.cwd(), '.cache', 'puppeteer');
+  const cacheBase = process.env.PUPPETEER_CACHE_DIR || path.join(process.cwd(), '.puppeteer');
 
   function findChrome(dir) {
     try {
