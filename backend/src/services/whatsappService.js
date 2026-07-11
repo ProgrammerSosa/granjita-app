@@ -76,6 +76,7 @@ function initWhatsApp() {
     authStrategy: new RemoteAuth({
       store: sessionStore,
       dataPath: './.wwebjs_remote',
+      backupSyncIntervalMs: 60000,
     }),
     puppeteer: puppeteerConfig,
   });
