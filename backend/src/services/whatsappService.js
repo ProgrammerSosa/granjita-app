@@ -41,7 +41,7 @@ const AUTO_REPLY_ENABLED = process.env.WHATSAPP_AUTO_REPLY === 'true';
 // Solo primer mensaje del día por contacto (default: true)
 const FIRST_MSG_OF_DAY =
   process.env.WHATSAPP_FIRST_MSG_OF_DAY !== 'false';
-const STORE_URL = process.env.STORE_URL || 'https://tienda-frontend.vercel.app';
+const STORE_URL = process.env.STORE_URL || 'https://granjita-frontend.onrender.com';
 
 // Sesiones de menú WhatsApp por teléfono
 // { "502...": { greetedDay, state, lastOrderId, lastOrderCode } }
