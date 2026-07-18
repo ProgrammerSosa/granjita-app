@@ -1,3 +1,36 @@
+// ── Escudo anti-crash de Puppeteer/WhatsApp (ANTES de todo) ──
+// Sin esto, un error de Chrome tras "ready" tira el proceso y nodemon dice "app crashed"
+function isWaNoise(err) {
+  const msg = String(err?.message || err?.stack || err || '');
+  return /ProtocolError|Protocol error|Execution context|puppeteer|Target closed|Session closed|Navigation failed|browser has disconnected|Runtime\.callFunctionOn|frame was detached|WebSocket is not open|net::ERR|whatsapp|WWebJS|Evaluation failed|Cannot find context/i.test(
+    msg
+  );
+}
+
+if (!process.__tiendaGlobalGuards) {
+  process.__tiendaGlobalGuards = true;
+  process.on('unhandledRejection', (reason) => {
+    if (isWaNoise(reason)) {
+      console.error('[WhatsApp] rejection capturado (API sigue viva):', reason?.message || reason);
+      return;
+    }
+    console.error('[Backend] unhandledRejection:', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    if (isWaNoise(err)) {
+      console.error('[WhatsApp] exception capturado (API sigue viva):', err?.message || err);
+      return; // NO process.exit
+    }
+    console.error('[Backend] uncaughtException:', err);
+    // Tampoco matamos el proceso por errores de runtime no fatales:
+    // el API de Express debe seguir sirviendo pedidos/catálogo.
+  });
+  process.on('warning', (w) => {
+    if (isWaNoise(w)) return;
+    console.warn('[Backend] warning:', w?.message || w);
+  });
+}
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -7,12 +40,26 @@ const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
 
+const { assertSecurityConfig, rateLimit, isProd } = require('./src/middleware/security');
+assertSecurityConfig();
+
 const productRoutes = require('./src/routes/productRoutes');
 const orderRoutes = require('./src/routes/orderRoutes');
 const uploadRoutes = require('./src/routes/uploadRoutes');
 const authRoutes = require('./src/routes/authRoutes');
+const categoryRoutes = require('./src/routes/categoryRoutes');
+const storeRoutes = require('./src/routes/storeRoutes');
+const { seedDefaultCategories } = require('./src/controllers/categoryController');
 const QRCode = require('qrcode');
-const { startWhatsApp, getWhatsAppStatus, getCurrentQR, sendTestMessage } = require('./src/services/whatsappService');
+const {
+  startWhatsApp,
+  getWhatsAppStatus,
+  getCurrentQR,
+  sendTestMessage,
+  requestPairingCode,
+  logoutWhatsApp,
+} = require('./src/services/whatsappService');
+const { authenticateAdmin } = require('./src/middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -22,107 +69,255 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors({
-  origin: function (origin, callback) {
-    const allowed = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',').map(s => s.trim());
-    if (!origin || allowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true);
-    }
+// Cabeceras de seguridad
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    contentSecurityPolicy: false, // panel HTML local simple
+  })
+);
+app.disable('x-powered-by');
+
+// CORS
+const defaultOrigins = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
+];
+const envOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true); // same-origin / Postman / server-to-server
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      // En desarrollo: localhost / 127.0.0.1 / devtunnels
+      if (!isProd()) {
+        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+          return callback(null, true);
+        }
+        if (/\.use\.devtunnels\.ms$/i.test(new URL(origin).hostname)) {
+          return callback(null, true);
+        }
+      }
+      console.warn(`[CORS] bloqueado: ${origin}`);
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+app.options('*', cors());
+
+if (!isProd()) {
+  app.use(morgan('dev'));
+} else {
+  app.use(morgan('combined'));
+}
+
+// Límite de body (anti payload abuse)
+app.use(express.json({ limit: '512kb' }));
+app.use(express.urlencoded({ extended: false, limit: '512kb' }));
+
+// Rate limit global API (por IP)
+app.use('/api/', rateLimit({ windowMs: 60_000, max: 180, message: 'Demasiadas peticiones. Esperá un minuto.' }));
+
+app.use('/uploads', express.static(uploadsDir, {
+  fallthrough: true,
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
   },
 }));
-app.use(morgan('dev'));
-app.use(express.json());
-
-app.use('/uploads', express.static(uploadsDir));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/store', storeRoutes);
 
+/** Health mínimo (sin secretos ni URLs internas en prod) */
 app.get('/api/health', (_req, res) => {
   const waStatus = getWhatsAppStatus();
-  res.json({
+  const payload = {
     status: 'ok',
     timestamp: new Date().toISOString(),
-    whatsapp: {
-      connected: waStatus.connected,
-      reconnectAttempts: waStatus.reconnectAttempts,
-      hasQR: waStatus.hasQR,
+    whatsapp: { connected: Boolean(waStatus.connected) },
+  };
+  if (!isProd()) {
+    payload.whatsapp.sessionSaved = waStatus.sessionSaved;
+    payload.whatsapp.hasQR = waStatus.hasQR;
+  }
+  res.json(payload);
+});
+
+/** Estado WA público: solo connected (sin paths ni pairing) */
+app.get('/api/whatsapp/status', (_req, res) => {
+  const s = getWhatsAppStatus();
+  res.json({
+    success: true,
+    data: {
+      connected: Boolean(s.connected),
+      sessionSaved: Boolean(s.sessionSaved),
     },
-    autoReply: process.env.WHATSAPP_AUTO_REPLY || 'NOT_SET',
-    storeUrl: process.env.STORE_URL || 'https://granjita-frontend.vercel.app',
   });
 });
 
-app.get('/api/whatsapp/status', (_req, res) => {
-  const status = getWhatsAppStatus();
-  res.json(status);
+/** Admin: estado completo WA */
+app.get('/api/whatsapp/admin/status', authenticateAdmin, (_req, res) => {
+  res.json({ success: true, data: getWhatsAppStatus() });
 });
 
-app.get('/api/whatsapp/test', async (_req, res) => {
-  const ownerNumber = process.env.OWNER_WHATSAPP;
+async function sendAdminQr(_req, res) {
+  const qr = getCurrentQR();
+  const status = getWhatsAppStatus();
+  if (status.connected) {
+    return res.json({ success: true, connected: true, qr: null, qrImage: null });
+  }
+  if (!qr) {
+    return res.status(404).json({
+      success: false,
+      message: status.sessionSaved
+        ? 'Reconectando con sesión guardada…'
+        : 'QR aún no generado. Esperá unos segundos.',
+      connected: false,
+      sessionSaved: status.sessionSaved,
+    });
+  }
+  try {
+    const qrImage = await QRCode.toDataURL(qr, { width: 280, margin: 2 });
+    return res.json({ success: true, connected: false, qrImage });
+  } catch {
+    return res.json({ success: true, connected: false, qrImage: null });
+  }
+}
+
+/** Admin: QR (nunca público — evita hijack de sesión WA) */
+app.get('/api/whatsapp/admin/qr', authenticateAdmin, sendAdminQr);
+app.get('/api/whatsapp/qr', authenticateAdmin, sendAdminQr);
+
+app.post('/api/whatsapp/admin/pairing-code', authenticateAdmin, async (req, res) => {
+  try {
+    const phone = req.body?.phone || process.env.OWNER_WHATSAPP;
+    const data = await requestPairingCode(phone);
+    res.json({
+      success: true,
+      data,
+      message:
+        'En el celular: WhatsApp → Dispositivos vinculados → Vincular con número → escribí el código.',
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message || 'Error al pedir código' });
+  }
+});
+
+app.post('/api/whatsapp/admin/logout', authenticateAdmin, async (req, res) => {
+  try {
+    const deleteSession = Boolean(req.body?.deleteSession);
+    const data = await logoutWhatsApp({ deleteSession });
+    res.json({
+      success: true,
+      data,
+      message: deleteSession
+        ? 'Desvinculado y sesión borrada.'
+        : 'Desvinculado.',
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message || 'Error al desvincular' });
+  }
+});
+
+/** Solo admin — nunca público */
+app.post('/api/whatsapp/admin/test', authenticateAdmin, async (req, res) => {
+  const ownerNumber = req.body?.phone || process.env.OWNER_WHATSAPP;
   if (!ownerNumber) {
     return res.status(400).json({ success: false, message: 'OWNER_WHATSAPP no configurado' });
   }
   try {
     await sendTestMessage(ownerNumber);
-    res.json({ success: true, message: `Mensaje de prueba enviado a ${ownerNumber}` });
+    res.json({ success: true, message: `Prueba enviada a ${ownerNumber}` });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message || 'Error' });
   }
 });
 
+// Bloquear endpoints WA públicos viejos
+app.get('/api/whatsapp/test', (_req, res) => {
+  res.status(401).json({
+    success: false,
+    message: 'Endpoint protegido. Usá POST /api/whatsapp/admin/test con token admin.',
+  });
+});
+
+/** Raíz: en producción no exponer QR; en dev solo si WA_PUBLIC_PANEL=true */
 app.get('/', async (_req, res) => {
+  if (isProd() || process.env.WA_PUBLIC_PANEL === 'false') {
+    return res.status(404).json({
+      success: false,
+      message: 'API La Granjita. Panel WhatsApp solo en Admin (login requerido).',
+    });
+  }
+
   const status = getWhatsAppStatus();
   const qr = getCurrentQR();
-
   let qrSection = '';
   if (status.connected) {
-    qrSection = '<div class="connected"><span class="dot green"></span> WhatsApp CONECTADO - La tienda esta funcionando</div>';
+    qrSection =
+      '<div class="connected"><span class="dot green"></span> WhatsApp CONECTADO</div>';
   } else if (qr) {
     try {
       const dataUrl = await QRCode.toDataURL(qr, { width: 260, margin: 2 });
-      qrSection = '<div class="qr-box"><img src="' + dataUrl + '" width="260" height="260" alt="QR" /></div><div class="hint">Escanea: WhatsApp &gt; Dispositivos vinculados &gt; Vincular dispositivo</div>';
-    } catch (e) {
-      qrSection = '<div class="status-line error">Error generando QR</div>';
+      qrSection =
+        '<div class="qr-box"><img src="' +
+        dataUrl +
+        '" width="260" height="260" alt="QR" /></div><p class="hint">Solo en desarrollo. En producción usá Admin → WhatsApp.</p>';
+    } catch {
+      qrSection = '<div class="status-line error">Error QR</div>';
     }
   } else {
-    qrSection = '<div class="status-line">Esperando QR...</div>';
+    qrSection = '<div class="status-line">Esperando… o usá /admin/whatsapp</div>';
   }
 
-  const logLines = [
-    '[SYS] Granjita Backend v1.0',
-    '[DB]  MongoDB ' + (status.connected ? 'conectado' : 'verificando...'),
-    '[WA]  WhatsApp ' + (status.connected ? 'conectado' : 'desconectado'),
-    status.hasQR ? '[QR]  QR listo para escanear' : status.connected ? '[QR]  No necesario - ya conectado' : '[QR]  Generando...',
-    '[SYS] Auto-refresh cada 30s',
-  ];
+  res.type('html').send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WA Dev</title>
+<style>body{background:#0d1117;color:#c9d1d9;font-family:system-ui;padding:24px;text-align:center}.connected{color:#3fb950;font-weight:700}.qr-box{background:#fff;display:inline-block;padding:12px;border-radius:12px;margin:12px}.hint{color:#8b949e;font-size:13px}</style>
+</head><body><h1 style="color:#f97316">La Granjita API</h1>${qrSection}
+<p class="hint">Preferí el panel admin protegido. Desactivá este panel con WA_PUBLIC_PANEL=false</p>
+</body></html>`);
+});
 
-  const logHTML = logLines.map(l => {
-    let cls = 'log-line';
-    if (l.includes('conectado') && !l.includes('desconectado')) cls += ' ok';
-    if (l.includes('desconectado') || l.includes('error')) cls += ' warn';
-    return '<div class="' + cls + '">' + l + '</div>';
-  }).join('');
-
-  res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Granjita - Panel</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0d1117;color:#c9d1d9;font-family:"Courier New",monospace;min-height:100vh;padding:20px}.header{text-align:center;padding:20px 0;border-bottom:1px solid #21262d;margin-bottom:20px}.header h1{color:#58a6ff;font-size:1.4em}.header small{color:#8b949e}.panel{max-width:600px;margin:0 auto}.terminal{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px;margin:16px 0;max-height:160px;overflow-y:auto}.log-line{color:#8b949e;font-size:0.85em;padding:2px 0}.log-line.ok{color:#3fb950}.log-line.warn{color:#d29922}.qr-section{text-align:center;padding:20px}.qr-box{background:white;padding:16px;border-radius:12px;display:inline-block;margin:12px 0}img{display:block}.connected{color:#3fb950;font-size:1.1em;padding:20px;text-align:center}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}.dot.green{background:#3fb950;box-shadow:0 0 8px #3fb950}.status-line{color:#8b949e;text-align:center;padding:16px;font-size:0.95em}.status-line.error{color:#f85149}.hint{color:#8b949e;font-size:0.8em;text-align:center;margin-top:8px}.footer{text-align:center;color:#484f58;font-size:0.75em;padding:20px 0;border-top:1px solid #21262d;margin-top:20px}</style><script>setTimeout(()=>location.reload(),30000)</script></head><body><div class="panel"><div class="header"><h1>GRANJITA</h1><small>Panel de Control WhatsApp</small></div><div class="qr-section">' + qrSection + '</div><div class="terminal"><div class="log-line" style="color:#58a6ff">--- Log del Sistema ---</div>' + logHTML + '</div><div class="footer">Auto-refresh 30s | Puerto ' + (process.env.PORT || 5000) + '</div></div></body></html>');
+// 404 API
+app.use('/api', (_req, res) => {
+  res.status(404).json({ success: false, message: 'Ruta no encontrada' });
 });
 
 app.use((err, _req, res, _next) => {
-  console.error('Error no manejado:', err);
-  res.status(500).json({ success: false, message: 'Error interno del servidor' });
+  console.error('Error no manejado:', err?.message || err);
+  res.status(500).json({
+    success: false,
+    message: isProd() ? 'Error interno del servidor' : err?.message || 'Error interno',
+  });
 });
 
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('Conectado a MongoDB');
+    await seedDefaultCategories();
     app.listen(PORT, () => {
       console.log(`Servidor corriendo en puerto ${PORT}`);
-      startWhatsApp();
+      console.log(`Health: http://127.0.0.1:${PORT}/api/health`);
+      // WhatsApp en segundo plano: si falla Puppeteer, la API no se cae
+      setImmediate(() => {
+        startWhatsApp().catch((e) => {
+          console.error('[WhatsApp] no crítico:', e?.message || e);
+        });
+      });
     });
   })
   .catch((err) => {

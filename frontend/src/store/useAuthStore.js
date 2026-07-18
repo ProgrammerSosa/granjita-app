@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 
 const useAuthStore = create((set, get) => ({
-  token: typeof window !== 'undefined' ? localStorage.getItem('granjita_admin_token') : null,
+  token: typeof window !== 'undefined' ? localStorage.getItem('tienda_admin_token') : null,
   isAuthenticated: false,
   loading: true,
 
   init: async () => {
-    const token = localStorage.getItem('granjita_admin_token');
+    const token = localStorage.getItem('tienda_admin_token');
     if (!token) {
       set({ token: null, isAuthenticated: false, loading: false });
       return;
@@ -22,22 +22,22 @@ const useAuthStore = create((set, get) => ({
       if (data.success && data.data.valid) {
         set({ token, isAuthenticated: true, loading: false });
       } else {
-        localStorage.removeItem('granjita_admin_token');
+        localStorage.removeItem('tienda_admin_token');
         set({ token: null, isAuthenticated: false, loading: false });
       }
     } catch {
-      localStorage.removeItem('granjita_admin_token');
+      localStorage.removeItem('tienda_admin_token');
       set({ token: null, isAuthenticated: false, loading: false });
     }
   },
 
   login: (token) => {
-    localStorage.setItem('granjita_admin_token', token);
+    localStorage.setItem('tienda_admin_token', token);
     set({ token, isAuthenticated: true });
   },
 
   logout: () => {
-    localStorage.removeItem('granjita_admin_token');
+    localStorage.removeItem('tienda_admin_token');
     set({ token: null, isAuthenticated: false });
   },
 

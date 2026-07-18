@@ -23,7 +23,7 @@ async function createPaymentPreference({ items, customer, total, orderId }) {
     body: {
       items: [
         {
-          title: `Pedido GRANJITA #${orderId.toString().slice(-6).toUpperCase()}`,
+          title: `Pedido TIENDA #${orderId.toString().slice(-6).toUpperCase()}`,
           quantity: 1,
           unit_price: total,
           currency_id: 'GTQ',

@@ -11,11 +11,23 @@ backend/.wwebjs_remote/
 
 # Environment files (se configuran en Railway/Vercel)
 backend/.env
-frontend/.env*
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
 frontend/.next/
+!frontend/.env.example
+!backend/.env.example
 
 # Uploads
 backend/uploads/
 
+# Datos locales (sesiones menú, stock alerts, settings)
+backend/data/
+
+# Facturas generadas
+backend/data/invoices/
+
 # Logs
 *.log
+*.pem
+*.key

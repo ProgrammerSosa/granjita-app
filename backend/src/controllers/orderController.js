@@ -1,9 +1,85 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
-const { sendOrderNotification, sendCustomerConfirmation, sendOrderStatusUpdate } = require('../services/whatsappService');
-const { createPaymentPreference } = require('../services/mercadopagoService');
+const {
+  sendOrderNotification,
+  sendCustomerConfirmation,
+  sendOrderStatusUpdate,
+} = require('../services/whatsappService');
+const { validateOrderAllowed } = require('../services/storeService');
+const { findZone, DELIVERY_MUNICIPALITY } = require('../data/deliveryZones');
+const { consumeStockForOrder } = require('../services/stockService');
+const { notifyOwner } = require('../services/whatsappService');
 
 const DELIVERY_FEE = 0;
+
+const GT_TZ = 'America/Guatemala';
+
+/** Fecha civil actual en Guatemala YYYY-MM-DD */
+function gtTodayStr() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: GT_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+/** Inicio/fin del día civil en Guatemala (UTC-6 fijo) */
+function gtDayRange(dateStr) {
+  const d = dateStr && /^\d{4}-\d{2}-\d{2}$/.test(String(dateStr).slice(0, 10))
+    ? String(dateStr).slice(0, 10)
+    : gtTodayStr();
+  const start = new Date(`${d}T00:00:00.000-06:00`);
+  const end = new Date(`${d}T23:59:59.999-06:00`);
+  return { start, end, dateStr: d };
+}
+
+/** Hora 0–23 en Guatemala para un Date */
+function gtHour(date) {
+  const h = new Intl.DateTimeFormat('en-GB', {
+    timeZone: GT_TZ,
+    hour: '2-digit',
+    hour12: false,
+  }).format(new Date(date));
+  let n = parseInt(h, 10);
+  if (n === 24) n = 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Resta N días a YYYY-MM-DD (civil) */
+function addDaysStr(dateStr, delta) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d + delta));
+  return utc.toISOString().slice(0, 10);
+}
+
+async function nextInvoiceNumber() {
+  const year = new Date().getFullYear();
+  const prefix = `TDA-${year}-`;
+  const last = await Order.findOne({
+    'invoice.number': { $regex: `^${prefix}` },
+  })
+    .sort({ 'invoice.issuedAt': -1 })
+    .select('invoice.number');
+
+  let seq = 1;
+  if (last?.invoice?.number) {
+    const part = last.invoice.number.split('-').pop();
+    const n = parseInt(part, 10);
+    if (!Number.isNaN(n)) seq = n + 1;
+  }
+  return `${prefix}${String(seq).padStart(5, '0')}`;
+}
+
+async function ensureInvoice(order) {
+  if (order.invoice?.number) return order;
+  order.invoice = {
+    number: await nextInvoiceNumber(),
+    issuedAt: new Date(),
+  };
+  await order.save();
+  return order;
+}
 
 exports.getAllOrders = async (req, res) => {
   try {
@@ -11,10 +87,7 @@ exports.getAllOrders = async (req, res) => {
     const filter = {};
     if (status) filter.orderStatus = status;
     if (date) {
-      const start = new Date(date);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(date);
-      end.setHours(23, 59, 59, 999);
+      const { start, end } = gtDayRange(date);
       filter.createdAt = { $gte: start, $lte: end };
     }
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -22,7 +95,13 @@ exports.getAllOrders = async (req, res) => {
       Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)),
       Order.countDocuments(filter),
     ]);
-    return res.json({ success: true, data: orders, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
+    return res.json({
+      success: true,
+      data: orders,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / parseInt(limit)),
+    });
   } catch (error) {
     console.error('Error al obtener pedidos:', error);
     return res.status(500).json({ success: false, message: 'Error al obtener pedidos' });
@@ -32,71 +111,181 @@ exports.getAllOrders = async (req, res) => {
 exports.getAdminStats = async (req, res) => {
   try {
     const { date } = req.query;
-    const targetDate = date ? new Date(date) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { start, end, dateStr } = gtDayRange(date);
+    const dayFilter = { createdAt: { $gte: start, $lte: end } };
 
-    const todayFilter = { createdAt: { $gte: startOfDay, $lte: endOfDay } };
+    // Rango últimos 7 días (incluye el día elegido)
+    const weekStartStr = addDaysStr(dateStr, -6);
+    const weekStart = new Date(`${weekStartStr}T00:00:00.000-06:00`);
+    const weekFilter = { createdAt: { $gte: weekStart, $lte: end } };
 
-    const [totalOrders, orders, topProducts] = await Promise.all([
-      Order.countDocuments(todayFilter),
-      Order.find(todayFilter),
+    const [orders, topProducts, weekOrders, allTimeCount] = await Promise.all([
+      Order.find(dayFilter).sort({ createdAt: -1 }),
       Order.aggregate([
-        { $match: todayFilter },
+        { $match: dayFilter },
         { $unwind: '$items' },
-        { $group: { _id: '$items.productName', totalSold: { $sum: '$items.quantity' }, totalRevenue: { $sum: '$items.subtotal' } } },
+        {
+          $group: {
+            _id: '$items.productName',
+            totalSold: { $sum: '$items.quantity' },
+            totalRevenue: { $sum: '$items.subtotal' },
+          },
+        },
         { $sort: { totalSold: -1 } },
         { $limit: 10 },
       ]),
+      Order.find(weekFilter).select('createdAt total orderStatus paymentMethod'),
+      Order.countDocuments(),
     ]);
 
-    const cashOrders = orders.filter(o => o.paymentMethod === 'cash');
-    const cardOrders = orders.filter(o => o.paymentMethod === 'card');
-    const totalRevenue = orders.reduce((sum, o) => sum + o.total, 0);
-    const cashRevenue = cashOrders.reduce((sum, o) => sum + o.total, 0);
-    const cardRevenue = cardOrders.reduce((sum, o) => sum + o.total, 0);
+    const totalOrders = orders.length;
+    const cashOrders = orders.filter((o) => o.paymentMethod === 'cash');
+    const cardOrders = orders.filter((o) => o.paymentMethod === 'card');
+    const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const cashRevenue = cashOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const cardRevenue = cardOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
 
-    const statusCounts = {};
-    orders.forEach(o => {
-      statusCounts[o.orderStatus] = (statusCounts[o.orderStatus] || 0) + 1;
+    const statusCounts = {
+      pending: 0,
+      confirmed: 0,
+      preparing: 0,
+      in_transit: 0,
+      delivered: 0,
+      cancelled: 0,
+    };
+    orders.forEach((o) => {
+      const k = o.orderStatus || 'pending';
+      statusCounts[k] = (statusCounts[k] || 0) + 1;
     });
 
+    // Ventas por hora en zona Guatemala (no UTC del servidor)
     const hourlySales = Array(24).fill(0);
-    orders.forEach(o => {
-      const hour = new Date(o.createdAt).getHours();
-      hourlySales[hour] += o.total;
+    const hourlyOrders = Array(24).fill(0);
+    orders.forEach((o) => {
+      const hour = gtHour(o.createdAt);
+      hourlySales[hour] += Number(o.total) || 0;
+      hourlyOrders[hour] += 1;
     });
+
+    const delivered = statusCounts.delivered || 0;
+    const cancelled = statusCounts.cancelled || 0;
+    const activeOrders = totalOrders - cancelled;
+    const avgTicket = totalOrders > 0 ? Math.round((totalRevenue / totalOrders) * 100) / 100 : 0;
+
+    const zoneCounts = {};
+    orders.forEach((o) => {
+      const z = (o.customer?.zone || '').trim() || 'Sin zona';
+      zoneCounts[z] = (zoneCounts[z] || 0) + 1;
+    });
+    const topZones = Object.entries(zoneCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    // Serie últimos 7 días (calendario GT)
+    const last7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const dStr = addDaysStr(dateStr, -i);
+      const r = gtDayRange(dStr);
+      const dayOrders = weekOrders.filter(
+        (o) => o.createdAt >= r.start && o.createdAt <= r.end
+      );
+      last7Days.push({
+        date: dStr,
+        orders: dayOrders.length,
+        revenue: dayOrders.reduce((s, o) => s + (Number(o.total) || 0), 0),
+        isSelected: dStr === dateStr,
+      });
+    }
+    const weekOrdersCount = weekOrders.length;
+    const weekRevenue = weekOrders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+
+    // Horas del negocio (10–20) para el front
+    const businessHours = [];
+    for (let h = 10; h <= 20; h++) {
+      businessHours.push({
+        hour: h,
+        label: `${h}:00`,
+        revenue: hourlySales[h] || 0,
+        orders: hourlyOrders[h] || 0,
+      });
+    }
 
     return res.json({
       success: true,
       data: {
+        date: dateStr,
+        timezone: GT_TZ,
         totalOrders,
         totalRevenue,
         cashOrders: cashOrders.length,
         cardOrders: cardOrders.length,
         cashRevenue,
         cardRevenue,
+        delivered,
+        cancelled,
+        activeOrders,
+        avgTicket,
         statusCounts,
-        topProducts,
+        topProducts: topProducts || [],
+        topZones,
         hourlySales,
+        hourlyOrders,
+        businessHours,
+        last7Days,
+        weekOrders: weekOrdersCount,
+        weekRevenue,
+        allTimeOrders: allTimeCount,
+        orders: orders.map((o) => ({
+          id: o._id,
+          shortId: o._id.toString().slice(-6).toUpperCase(),
+          total: o.total,
+          status: o.orderStatus,
+          paymentMethod: o.paymentMethod,
+          customerName: o.customer?.name || '',
+          phone: o.customer?.phone || '',
+          zone: o.customer?.zone || '',
+          address: o.customer?.address || '',
+          itemsCount: (o.items || []).reduce((s, it) => s + (it.quantity || 0), 0),
+          createdAt: o.createdAt,
+        })),
       },
     });
   } catch (error) {
     console.error('Error al obtener estadísticas:', error);
-    return res.status(500).json({ success: false, message: 'Error al obtener estadísticas' });
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al obtener estadísticas',
+    });
   }
 };
 
 exports.createOrder = async (req, res) => {
   try {
-    const { customer, items, paymentMethod } = req.body;
+    const { customer, items, paymentMethod, cashIntent } = req.body;
 
     if (!customer?.name || !customer?.phone || !customer?.address) {
       return res.status(400).json({
         success: false,
         message: 'Nombre, teléfono y dirección son obligatorios',
+      });
+    }
+
+    const zoneResolved = findZone(customer.zone || customer.deliveryZone);
+    if (!zoneResolved) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Solo entregamos en zonas residenciales de San José Pinula. Elegí tu residencial de la lista.',
+        code: 'invalid_zone',
+      });
+    }
+
+    const phoneDigits = String(customer.phone).replace(/\D/g, '');
+    if (phoneDigits.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Teléfono inválido (mínimo 8 dígitos)',
       });
     }
 
@@ -110,7 +299,7 @@ exports.createOrder = async (req, res) => {
     if (!['cash', 'card'].includes(paymentMethod)) {
       return res.status(400).json({
         success: false,
-        message: 'Método de pago inválido. Use "cash" o "card"',
+        message: 'Método de pago inválido. Use "cash" (efectivo) o "card" (terminal en casa)',
       });
     }
 
@@ -120,39 +309,54 @@ exports.createOrder = async (req, res) => {
         if (!product) {
           throw new Error(`Producto no encontrado: ${item.productId}`);
         }
-
-        let unitPrice = product.price;
-
-        if (item.variantName) {
-          const variant = product.variants.find(
-            (v) => v.name === item.variantName
+        if (product.available === false) {
+          throw new Error(`"${product.name}" está agotado`);
+        }
+        const qty = item.quantity || 1;
+        if (product.trackStock !== false && (product.stock || 0) < qty) {
+          throw new Error(
+            `No hay suficiente stock de "${product.name}". Quedan ${product.stock || 0}.`
           );
-          if (variant) unitPrice = variant.price;
         }
 
-        const extrasTotal = (item.extras || []).reduce(
-          (sum, extraName) => {
-            const extra = product.extras.find((e) => e.name === extraName);
-            return sum + (extra ? extra.price : 0);
-          },
-          0
-        );
+        const variants = product.variants || [];
+        let unitPrice = product.price;
+        let variantMeta = { name: null, price: 0, kind: null };
+
+        if (variants.length > 0) {
+          if (!item.variantName) {
+            throw new Error(`Elegí una variante (unidad o peso) para "${product.name}"`);
+          }
+          const variant = variants.find((v) => v.name === item.variantName);
+          if (!variant) {
+            throw new Error(`Variante no válida para "${product.name}"`);
+          }
+          unitPrice = Number(variant.price);
+          variantMeta = {
+            name: variant.name,
+            price: unitPrice,
+            kind: variant.kind === 'weight' ? 'weight' : 'unit',
+          };
+        }
+
+        const extrasTotal = (item.extras || []).reduce((sum, extraName) => {
+          const extra = product.extras.find((e) => e.name === extraName);
+          return sum + (extra ? extra.price : 0);
+        }, 0);
 
         unitPrice += extrasTotal;
 
         return {
           product: product._id,
           productName: product.name,
-          variant: item.variantName
-            ? { name: item.variantName, price: unitPrice - extrasTotal - (product.price ? 0 : unitPrice) }
-            : { name: null, price: 0 },
+          variant: variantMeta,
           extras: (item.extras || []).map((name) => {
             const extra = product.extras.find((e) => e.name === name);
             return extra ? { name: extra.name, price: extra.price } : { name, price: 0 };
           }),
-          quantity: item.quantity || 1,
+          quantity: qty,
           unitPrice,
-          subtotal: (item.quantity || 1) * unitPrice,
+          subtotal: qty * unitPrice,
         };
       })
     );
@@ -160,11 +364,82 @@ exports.createOrder = async (req, res) => {
     const subtotal = enrichedItems.reduce((sum, i) => sum + i.subtotal, 0);
     const total = subtotal + DELIVERY_FEE;
 
-    const orderData = {
+    // Horario, descanso planificado y pedido mínimo
+    const storeCheck = validateOrderAllowed(subtotal);
+    if (!storeCheck.ok) {
+      return res.status(400).json({
+        success: false,
+        message: storeCheck.message,
+        code: storeCheck.code,
+      });
+    }
+
+    // Descontar inventario (y alertas stock bajo / agotado)
+    try {
+      await consumeStockForOrder(
+        items.map((i) => ({ productId: i.productId, quantity: i.quantity || 1 })),
+        { sendWhatsApp: (text) => notifyOwner(text) }
+      );
+    } catch (stockErr) {
+      return res.status(400).json({
+        success: false,
+        message: stockErr.message || 'Error de stock',
+        code: 'stock',
+      });
+    }
+
+    // Cliente declara billetes al pedir en efectivo
+    let cashIntentData = undefined;
+    if (paymentMethod === 'cash' && cashIntent?.bills) {
+      const cleanBills = (cashIntent.bills || [])
+        .map((b) => ({
+          denomination: Number(b.denomination),
+          count: Math.max(0, parseInt(b.count, 10) || 0),
+        }))
+        .filter((b) => b.denomination > 0 && b.count > 0);
+
+      const amountTendered = cleanBills.reduce(
+        (sum, b) => sum + b.denomination * b.count,
+        0
+      );
+
+      if (amountTendered < total) {
+        return res.status(400).json({
+          success: false,
+          message: `Los billetes no alcanzan. Total Q${total}, indicaste Q${amountTendered}`,
+        });
+      }
+
+      cashIntentData = {
+        bills: cleanBills,
+        amountTendered,
+        change: Math.round((amountTendered - total) * 100) / 100,
+        declaredAt: new Date(),
+      };
+    }
+
+    if (paymentMethod === 'cash' && !cashIntentData) {
+      return res.status(400).json({
+        success: false,
+        message: 'En efectivo debés indicar con qué billetes vas a pagar',
+      });
+    }
+
+    // Teléfono normalizado (GT: 8 dígitos → 502…)
+    let phoneNorm = phoneDigits;
+    if (phoneNorm.length === 8) phoneNorm = `502${phoneNorm}`;
+    if (phoneNorm.startsWith('00')) phoneNorm = phoneNorm.slice(2);
+
+    // Ambos se cobran en la entrega (efectivo o POS)
+    // Factura/comprobante al CONFIRMAR el pedido (no esperar "en camino")
+    const invoiceNumber = await nextInvoiceNumber();
+    const order = await Order.create({
       customer: {
         name: customer.name.trim(),
-        phone: customer.phone.trim(),
+        phone: phoneNorm,
         address: customer.address.trim(),
+        zone: zoneResolved,
+        municipality: DELIVERY_MUNICIPALITY,
         notes: customer.notes?.trim() || '',
       },
       items: enrichedItems,
@@ -172,50 +447,53 @@ exports.createOrder = async (req, res) => {
       deliveryFee: DELIVERY_FEE,
       total,
       paymentMethod,
-      paymentStatus: paymentMethod === 'cash' ? 'pending' : 'pending',
+      paymentStatus: 'pending',
       orderStatus: 'pending',
+      invoice: {
+        number: invoiceNumber,
+        issuedAt: new Date(),
+      },
+      ...(cashIntentData ? { cashIntent: cashIntentData } : {}),
+    });
+
+    console.log(
+      `🧾 Pedido creado #${order._id.toString().slice(-6).toUpperCase()} ` +
+        `factura=${invoiceNumber} tel=${phoneNorm} total=Q${total}`
+    );
+
+    // WhatsApp:
+    //  1) Dueño  → mensaje "HAY PEDIDO"
+    //  2) Cliente (número que pidió) → confirmación + PDF factura
+    const whatsapp = {
+      owner: false,
+      customer: false,
+      customerPhone: phoneNorm,
+      invoicePdf: false,
+      errors: [],
     };
 
-    let paymentLink = null;
-    if (paymentMethod === 'card') {
-      try {
-        const preference = await createPaymentPreference({
-          items: enrichedItems,
-          customer,
-          total,
-          orderId: 'pending',
-        });
-        paymentLink = preference.init_point;
-      } catch (mpError) {
-        console.error('Error creando preferencia MP:', mpError.message);
-        return res.status(502).json({
-          success: false,
-          message: 'Error al procesar el pago con tarjeta. Intente de nuevo.',
-        });
-      }
-    }
-
-    const order = await Order.create(orderData);
-
-    if (paymentMethod === 'card' && paymentLink) {
-      await Order.findByIdAndUpdate(order._id, {
-        whatsappSessionId: `pending_mp_${order._id}`,
-      });
-    }
-
-    try {
-      await sendOrderNotification(order);
-    } catch (waError) {
-      console.error('Error enviando notificación WhatsApp:', waError.message);
-    }
-
+    // Primero al cliente (quien pidió) — PDF + mensaje
     try {
       await sendCustomerConfirmation(order);
+      whatsapp.customer = true;
+      whatsapp.invoicePdf = true;
+      console.log(`✅ WA cliente OK → PDF a ${phoneNorm}`);
     } catch (waError) {
-      console.error('Error enviando confirmación al cliente:', waError.message);
+      whatsapp.errors.push(`cliente(${phoneNorm}): ${waError.message}`);
+      console.error(`❌ WA cliente ${phoneNorm}:`, waError.message);
     }
 
-    const response = {
+    // Luego al dueño — "hay pedido"
+    try {
+      await sendOrderNotification(order);
+      whatsapp.owner = true;
+      console.log('✅ WA dueño OK → aviso HAY PEDIDO');
+    } catch (waError) {
+      whatsapp.errors.push(`dueño: ${waError.message}`);
+      console.error('❌ WA dueño:', waError.message);
+    }
+
+    return res.status(201).json({
       success: true,
       data: {
         _id: order._id,
@@ -227,12 +505,15 @@ exports.createOrder = async (req, res) => {
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
         orderStatus: order.orderStatus,
+        invoice: order.invoice,
+        cashIntent: order.cashIntent,
         createdAt: order.createdAt,
-        ...(paymentLink ? { paymentLink } : {}),
       },
-    };
-
-    return res.status(201).json(response);
+      whatsapp,
+      message: whatsapp.invoicePdf
+        ? `Pedido creado. Factura PDF enviada a WhatsApp ${phoneNorm}`
+        : `Pedido creado, pero no se pudo mandar el PDF a ${phoneNorm}. Revisá que el número tenga WhatsApp.`,
+    });
   } catch (error) {
     console.error('Error al crear pedido:', error);
     return res.status(500).json({
@@ -244,14 +525,50 @@ exports.createOrder = async (req, res) => {
 
 exports.getOrderById = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    // Validar ObjectId para no filtrar errores internos
+    if (!/^[a-f\d]{24}$/i.test(String(req.params.id || ''))) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+    const order = await Order.findById(req.params.id).lean();
     if (!order) {
       return res.status(404).json({
         success: false,
         message: 'Pedido no encontrado',
       });
     }
-    return res.json({ success: true, data: order });
+    // Público: solo lo necesario para la pantalla de confirmación (sin datos internos)
+    const publicOrder = {
+      _id: order._id,
+      customer: {
+        name: order.customer?.name,
+        // no exponer teléfono completo en respuestas públicas
+        phone: order.customer?.phone
+          ? String(order.customer.phone).replace(/(\d{4})\d+(\d{2})/, '$1****$2')
+          : '',
+        address: order.customer?.address,
+        zone: order.customer?.zone,
+      },
+      items: (order.items || []).map((it) => ({
+        productName: it.productName,
+        quantity: it.quantity,
+        subtotal: it.subtotal,
+        variant: it.variant,
+      })),
+      subtotal: order.subtotal,
+      deliveryFee: order.deliveryFee,
+      total: order.total,
+      paymentMethod: order.paymentMethod,
+      orderStatus: order.orderStatus,
+      cashIntent: order.cashIntent
+        ? {
+            amountTendered: order.cashIntent.amountTendered,
+            change: order.cashIntent.change,
+            bills: order.cashIntent.bills,
+          }
+        : undefined,
+      createdAt: order.createdAt,
+    };
+    return res.json({ success: true, data: publicOrder });
   } catch (error) {
     console.error('Error al obtener pedido:', error);
     return res.status(500).json({
@@ -261,17 +578,58 @@ exports.getOrderById = async (req, res) => {
   }
 };
 
+/** Reenvía comprobante WA al cliente + aviso al dueño (útil si falló al crear) */
+exports.resendWhatsApp = async (req, res) => {
+  try {
+    let order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+
+    // Asegurar factura
+    if (!order.invoice?.number) {
+      order = await ensureInvoice(order);
+    }
+
+    // Normalizar teléfono
+    let p = String(order.customer.phone || '').replace(/\D/g, '');
+    if (p.length === 8) p = `502${p}`;
+    if (p !== order.customer.phone) {
+      order.customer.phone = p;
+      await order.save();
+    }
+
+    const whatsapp = { owner: false, customer: false, errors: [] };
+    try {
+      await sendOrderNotification(order);
+      whatsapp.owner = true;
+    } catch (e) {
+      whatsapp.errors.push(`owner: ${e.message}`);
+    }
+    try {
+      await sendCustomerConfirmation(order);
+      whatsapp.customer = true;
+    } catch (e) {
+      whatsapp.errors.push(`customer: ${e.message}`);
+    }
+
+    return res.json({
+      success: whatsapp.owner || whatsapp.customer,
+      message: 'Reenvío WhatsApp ejecutado',
+      invoice: order.invoice,
+      phone: order.customer.phone,
+      whatsapp,
+    });
+  } catch (error) {
+    console.error('Error resend WhatsApp:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { orderStatus, paymentStatus } = req.body;
-    const updateData = {};
-    if (orderStatus) updateData.orderStatus = orderStatus;
-    if (paymentStatus) updateData.paymentStatus = paymentStatus;
-
-    const order = await Order.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true,
-    });
+    let order = await Order.findById(req.params.id);
 
     if (!order) {
       return res.status(404).json({
@@ -279,6 +637,24 @@ exports.updateOrderStatus = async (req, res) => {
         message: 'Pedido no encontrado',
       });
     }
+
+    if (orderStatus) order.orderStatus = orderStatus;
+    if (paymentStatus) order.paymentStatus = paymentStatus;
+
+    // Factura al poner "en camino"
+    if (orderStatus === 'in_transit' && !order.invoice?.number) {
+      order.invoice = {
+        number: await nextInvoiceNumber(),
+        issuedAt: new Date(),
+      };
+    }
+
+    // Al entregar, marcar pago cobrado si no se marcó
+    if (orderStatus === 'delivered' && order.paymentStatus === 'pending') {
+      order.paymentStatus = 'paid';
+    }
+
+    await order.save();
 
     if (orderStatus) {
       try {
@@ -297,3 +673,137 @@ exports.updateOrderStatus = async (req, res) => {
     });
   }
 };
+
+/**
+ * Registrar cobro en efectivo.
+ * Por defecto usa lo que el CLIENTE declaró (cashIntent) — el admin NO inventa montos.
+ * Body: { useClientIntent: true, notes? }  (recomendado)
+ */
+exports.recordCashPayment = async (req, res) => {
+  try {
+    const { bills, notes, useClientIntent = true } = req.body;
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+    if (order.paymentMethod !== 'cash') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este pedido no es de efectivo (usa terminal POS)',
+      });
+    }
+
+    let cleanBills;
+    let amountTendered;
+    let change;
+
+    if (useClientIntent !== false && order.cashIntent?.amountTendered > 0) {
+      // Solo lo que dijo el cliente — admin no modifica
+      cleanBills = (order.cashIntent.bills || []).map((b) => ({
+        denomination: Number(b.denomination),
+        count: Number(b.count),
+      }));
+      amountTendered = Number(order.cashIntent.amountTendered);
+      change = Number(order.cashIntent.change) || 0;
+    } else {
+      if (!Array.isArray(bills) || bills.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No hay billetes del cliente. El monto lo define el cliente en el checkout.',
+        });
+      }
+      cleanBills = bills
+        .map((b) => ({
+          denomination: Number(b.denomination),
+          count: Math.max(0, parseInt(b.count, 10) || 0),
+        }))
+        .filter((b) => b.denomination > 0 && b.count > 0);
+      amountTendered = cleanBills.reduce(
+        (sum, b) => sum + b.denomination * b.count,
+        0
+      );
+      if (amountTendered < order.total) {
+        return res.status(400).json({
+          success: false,
+          message: `Falta dinero. Total Q${order.total}, entregado Q${amountTendered}`,
+        });
+      }
+      change = Math.round((amountTendered - order.total) * 100) / 100;
+    }
+
+    order.cashPayment = {
+      bills: cleanBills,
+      amountTendered,
+      change,
+      notes: notes?.trim() || 'Cobrado según billetes declarados por el cliente',
+      recordedAt: new Date(),
+    };
+    order.paymentStatus = 'paid';
+    await order.save();
+
+    return res.json({ success: true, data: order });
+  } catch (error) {
+    console.error('Error registrando cobro efectivo:', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+/** Listado de facturas (admin) */
+exports.listInvoices = async (req, res) => {
+  try {
+    const { date, page = 1, limit = 50 } = req.query;
+    const filter = { 'invoice.number': { $ne: null, $exists: true } };
+    if (date) {
+      const { start, end } = gtDayRange(date);
+      filter.$or = [
+        { 'invoice.issuedAt': { $gte: start, $lte: end } },
+        { createdAt: { $gte: start, $lte: end } },
+      ];
+    }
+    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .sort({ 'invoice.issuedAt': -1, createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit, 10))
+        .select(
+          'customer items subtotal deliveryFee total paymentMethod paymentStatus orderStatus invoice cashIntent cashPayment createdAt'
+        ),
+      Order.countDocuments(filter),
+    ]);
+    return res.json({
+      success: true,
+      data: orders,
+      total,
+      page: parseInt(page, 10),
+      pages: Math.ceil(total / parseInt(limit, 10)) || 1,
+    });
+  } catch (error) {
+    console.error('Error listando facturas:', error);
+    return res.status(500).json({ success: false, message: 'Error al listar facturas' });
+  }
+};
+
+/** Descargar PDF de factura */
+exports.downloadInvoicePdf = async (req, res) => {
+  try {
+    let order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+    if (!order.invoice?.number) {
+      order = await ensureInvoice(order);
+    }
+    const { generateInvoicePdf } = require('../services/invoicePdfService');
+    const { filePath, fileName } = await generateInvoicePdf(order);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    return res.sendFile(filePath);
+  } catch (error) {
+    console.error('Error PDF factura:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.ensureInvoice = ensureInvoice;

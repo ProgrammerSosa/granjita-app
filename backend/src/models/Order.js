@@ -30,6 +30,11 @@ const orderItemSchema = new mongoose.Schema({
   },
 }, { _id: false });
 
+const billLineSchema = new mongoose.Schema({
+  denomination: { type: Number, required: true },
+  count: { type: Number, required: true, min: 0 },
+}, { _id: false });
+
 const orderSchema = new mongoose.Schema({
   customer: {
     name: {
@@ -46,6 +51,17 @@ const orderSchema = new mongoose.Schema({
       type: String,
       required: [true, 'La dirección de entrega es obligatoria'],
       trim: true,
+    },
+    /** Residencial de San José Pinula */
+    zone: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    municipality: {
+      type: String,
+      trim: true,
+      default: 'San José Pinula',
     },
     notes: {
       type: String,
@@ -66,6 +82,7 @@ const orderSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  // cash = efectivo al llegar | card = terminal POS en casa del cliente
   paymentMethod: {
     type: String,
     enum: ['cash', 'card'],
@@ -81,6 +98,26 @@ const orderSchema = new mongoose.Schema({
     enum: ['pending', 'confirmed', 'preparing', 'in_transit', 'delivered', 'cancelled'],
     default: 'pending',
   },
+  // Factura se genera al pasar a "en camino"
+  invoice: {
+    number: { type: String, default: null },
+    issuedAt: { type: Date, default: null },
+  },
+  // Lo que el cliente DIJO que pagará (en el checkout)
+  cashIntent: {
+    bills: [billLineSchema],
+    amountTendered: { type: Number, default: 0 },
+    change: { type: Number, default: 0 },
+    declaredAt: { type: Date, default: null },
+  },
+  // Cobro real en la puerta (repartidor confirma)
+  cashPayment: {
+    bills: [billLineSchema],
+    amountTendered: { type: Number, default: 0 },
+    change: { type: Number, default: 0 },
+    notes: { type: String, default: '' },
+    recordedAt: { type: Date, default: null },
+  },
   whatsappSessionId: {
     type: String,
     default: '',
@@ -92,5 +129,6 @@ const orderSchema = new mongoose.Schema({
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ 'customer.phone': 1 });
 orderSchema.index({ orderStatus: 1 });
+orderSchema.index({ 'invoice.number': 1 });
 
 module.exports = mongoose.model('Order', orderSchema);
