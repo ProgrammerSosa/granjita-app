@@ -269,22 +269,28 @@ Repo GitHub: https://github.com/ProgrammerSosa/granjita-app
 
 ---
 
-## Desplegar en Railway (producción)
+## Desplegar en producción
 
-Hay una guía completa en **[DEPLOY-RAILWAY.md](./DEPLOY-RAILWAY.md)**.
+### Render (recomendado)
 
-Resumen:
+Guía completa: **[DEPLOY-RENDER.md](./DEPLOY-RENDER.md)**
 
-1. Conectá el repo de GitHub en [railway.app](https://railway.app)  
-2. Creá **3 servicios**: MongoDB + `backend` (Root Directory: `backend`) + `frontend` (Root Directory: `frontend`)  
-3. Variables backend: `MONGODB_URI`, `ADMIN_PASSWORD`, `JWT_SECRET`, `CORS_ORIGIN`, `STORE_URL`, …  
-4. Variables frontend: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WHATSAPP`  
-5. Generá dominio público en cada servicio web  
+1. **MongoDB Atlas** (free) → connection string  
+2. En [render.com](https://dashboard.render.com): Blueprint del repo **o** 2 Web Services  
+   - Backend: Root Directory = `backend`  
+   - Frontend: Root Directory = `frontend`  
+3. Variables (backend): `MONGODB_URI`, `ADMIN_PASSWORD`, `JWT_SECRET`, `CORS_ORIGIN`, `STORE_URL`…  
+4. Variables (frontend): `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WHATSAPP`  
+5. Hay un `render.yaml` listo en la raíz del repo  
 
-**Admin en producción:** `https://tu-frontend.up.railway.app/admin/login`  
-**Contraseña:** la de `ADMIN_PASSWORD` (local de referencia: `emadiana123`)
+**Admin:** `https://tu-frontend.onrender.com/admin/login`  
+**Contraseña:** la de `ADMIN_PASSWORD` (referencia local: `emadiana123`)
 
-> WhatsApp en Railway es opcional y frágil (sesión/Chrome). Para debutar usá `WHATSAPP_ENABLED=false`. Detalle en `DEPLOY-RAILWAY.md`.
+> En Render free el servicio se “duerme” sin tráfico. WhatsApp: usá `WHATSAPP_ENABLED=false` al inicio.
+
+### Railway (alternativa)
+
+Guía: **[DEPLOY-RAILWAY.md](./DEPLOY-RAILWAY.md)** (misma idea: Mongo + backend + frontend).
 
 ---
 

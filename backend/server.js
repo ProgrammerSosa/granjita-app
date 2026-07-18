@@ -90,7 +90,7 @@ const defaultOrigins = [
 ];
 const envOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
-  .map((s) => s.trim())
+  .map((s) => s.trim().replace(/\/$/, ''))
   .filter(Boolean);
 const allowedOrigins = [...new Set([...defaultOrigins, ...envOrigins])];
 
@@ -98,13 +98,28 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true); // same-origin / Postman / server-to-server
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      const clean = origin.replace(/\/$/, '');
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes(clean)) {
+        return callback(null, true);
+      }
       // En desarrollo: localhost / 127.0.0.1 / devtunnels
       if (!isProd()) {
-        if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-          return callback(null, true);
+        try {
+          if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+            return callback(null, true);
+          }
+          if (/\.use\.devtunnels\.ms$/i.test(new URL(origin).hostname)) {
+            return callback(null, true);
+          }
+        } catch {
+          /* ignore */
         }
-        if (/\.use\.devtunnels\.ms$/i.test(new URL(origin).hostname)) {
+      }
+      // Producción: permitir subdominios onrender.com si se listó el host base
+      // (por si CORS_ORIGIN se cargó sin https)
+      if (isProd() && /\.onrender\.com$/i.test(new URL(origin).hostname)) {
+        const hostOnly = new URL(origin).origin;
+        if (allowedOrigins.some((o) => o.includes(new URL(origin).hostname) || o === hostOnly)) {
           return callback(null, true);
         }
       }
