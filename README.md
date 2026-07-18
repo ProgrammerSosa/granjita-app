@@ -1,41 +1,90 @@
-# TIENDA — Productos frescos a domicilio
+# La Granjita — Pedidos a domicilio
 
-App de pedidos a domicilio: catálogo, carrito, checkout (efectivo / terminal POS en casa), panel admin, facturas y **WhatsApp**.
+Sistema completo de **tienda online + panel de administración** para un negocio de productos frescos a domicilio (San José Pinula, Guatemala).
 
-## Stack
+Ideal para quien compra o recibe el proyecto: aquí está **qué hace**, **cómo arrancarlo**, **credenciales** y **cómo usarlo**.
+
+---
+
+## ¿Qué es?
+
+Una app web donde:
+
+| Quién | Qué puede hacer |
+|--------|------------------|
+| **Cliente** | Ve el catálogo, arma el carrito, elige unidad o peso, paga en efectivo (con billetes) o con terminal POS en casa, recibe avisos por WhatsApp |
+| **Dueño / admin** | Gestiona productos, stock, pedidos en vivo, horarios, facturas, estadísticas y WhatsApp del negocio |
+
+**Stack**
 
 | Capa | Tecnología |
 |------|------------|
-| Frontend | Next.js 14, React 18, Tailwind, Zustand |
+| Frontend | Next.js 14, React 18, Tailwind, Zustand, Recharts |
 | Backend | Node.js, Express, MongoDB |
-| Pagos | Efectivo al entregar · Tarjeta con POS en casa |
-| Mensajes | WhatsApp Web (`whatsapp-web.js`) |
+| Mensajes | WhatsApp Web (`whatsapp-web.js`) — se vincula **una sola vez** |
+| Pagos | Efectivo al entregar · Tarjeta con POS en la casa del cliente |
 
-## Estructura
+---
 
+## Credenciales y accesos (listo para usar)
+
+### Panel administrador
+
+| Dato | Valor |
+|------|--------|
+| **URL login** | http://127.0.0.1:3000/admin/login |
+| **Contraseña** | `emadiana123` |
+| Variable en backend | `ADMIN_PASSWORD` en `backend/.env` |
+
+También podés abrir el admin desde la tienda: **10 toques al logo** (aparece el ícono de engranaje).
+
+### Tienda (cliente)
+
+| Dato | Valor |
+|------|--------|
+| **URL** | http://127.0.0.1:3000 |
+| **Acerca de (ayuda al cliente)** | http://127.0.0.1:3000/acerca-de |
+
+### API / Backend
+
+| Dato | Valor |
+|------|--------|
+| **API** | http://127.0.0.1:5000 |
+| **Health** | http://127.0.0.1:5000/api/health |
+
+### WhatsApp del negocio
+
+| Dato | Valor |
+|------|--------|
+| **Número dueño (ejemplo)** | Configurado en `.env` como `OWNER_WHATSAPP` (ej. `50254973412`) |
+| **Vincular WhatsApp** | Solo desde **Admin → WhatsApp** (protegido con login) |
+| **Sesión guardada** | `%USERPROFILE%\.tienda-wwebjs-auth` (Windows) — **no borrar** si no querés volver a escanear |
+
+> **Importante:** al publicar o entregar a un cliente final, cambiale la contraseña admin y el `JWT_SECRET` en `backend/.env`.
+
+---
+
+## Arranque rápido (Windows)
+
+### Opción A — scripts
+
+```bat
+cd C:\Users\PC\tienda
+start-all.bat
 ```
-tienda/
-├── frontend/     # Tienda + panel admin
-├── backend/      # API + WhatsApp
-│   └── data/     # wa-daily-greetings.json (auto)
-└── README.md
-```
 
-## Arranque local (Windows)
+### Opción B — dos terminales
 
-### 1. Backend (dejar la ventana abierta)
+**1. Backend** (dejar abierta):
 
 ```bat
 cd C:\Users\PC\tienda\backend
 copy .env.example .env
 npm install
-node server.js
+npm run dev
 ```
 
-- API: http://127.0.0.1:5000  
-- QR WhatsApp: http://127.0.0.1:5000/  
-
-### 2. Frontend (otra ventana, dejar abierta)
+**2. Frontend** (otra ventana):
 
 ```bat
 cd C:\Users\PC\tienda\frontend
@@ -44,137 +93,186 @@ npm install
 npm run dev
 ```
 
-- Tienda: http://127.0.0.1:3000  
-- Admin: http://127.0.0.1:3000/admin/login  
-- PIN / password admin: el de `ADMIN_PASSWORD` en `.env` (ej. `admin123`)
+Requisitos:
 
-> Si ves **ERR_CONNECTION_REFUSED**, el frontend o el backend se apagaron. Volvé a abrir las dos ventanas CMD.
+- **Node.js** instalado  
+- **MongoDB** corriendo en `mongodb://127.0.0.1:27017/tienda`  
+- **Google Chrome** (para WhatsApp Web)
 
----
-
-## WhatsApp — cómo funciona
-
-### Conectar el número (una vez)
-
-1. Arrancá el **backend** (`node server.js`)
-2. Abrí http://127.0.0.1:5000/
-3. Escaneá el **QR** con el WhatsApp del negocio:  
-   *Dispositivos vinculados → Vincular un dispositivo*
-4. Cuando diga **WhatsApp CONECTADO**, listo
-
-La sesión se guarda en `backend/.wwebjs_auth/` (no la borres si no querés volver a escanear).
-
-### Menú WhatsApp (como “switch” de opciones)
-
-El cliente responde con **números** (1, 2, 3). Es lo más estable en WhatsApp Web.
-
-#### A) Primer mensaje del día → menú de 3 opciones
-
-```
-1️⃣  Realizar un pedido     → manda el link de la página
-2️⃣  Atención al cliente    → avisa al dueño (OWNER_WHATSAPP) que quiere hablar
-3️⃣  Modificar un pedido    → pide que escriba el cambio (antes de reparto)
-```
-
-#### B) Después de hacer un pedido (web) → menú de 2 opciones
-
-Al confirmar el pedido por la tienda, el cliente recibe en WhatsApp:
-
-```
-1️⃣  Realizar otro pedido   → otra vez el link
-2️⃣  Modificar este pedido  → "escribí tu cambio antes de que salga a reparto"
-```
-
-Si elige modificar y manda el texto, **vos** recibís la solicitud en `OWNER_WHATSAPP` con el # de pedido.
-
-#### Variables
-
-| Variable | Valor | Qué hace |
-|----------|-------|----------|
-| `WHATSAPP_AUTO_REPLY` | `true` | Activa menús y auto-respuestas |
-| `WHATSAPP_FIRST_MSG_OF_DAY` | `true` | El saludo+menú 3 sale en el 1.er msg del día |
-| `OWNER_WHATSAPP` | `502...` | Recibe pedidos, atención y cambios |
-| `STORE_URL` | URL tienda | Link de la opción 1 |
-
-Sesiones del menú:
-
-```
-backend/data/wa-sessions.json
-```
-
-Para resetear menús del día: borrá ese archivo y reiniciá el backend.
-
-### Otros mensajes de WhatsApp
-
-| Evento | A quién | Contenido |
-|--------|---------|-----------|
-| Nuevo pedido | `OWNER_WHATSAPP` | Detalle + billetes si dijo efectivo |
-| Pedido creado | Cliente | Confirmación |
-| Cambio de estado | Cliente | En camino (con **factura**), entregado, etc. |
-
-### Variables WhatsApp en `.env`
-
-```env
-STORE_URL=http://127.0.0.1:3000
-OWNER_WHATSAPP=50255551234
-WHATSAPP_AUTO_REPLY=true
-WHATSAPP_FIRST_MSG_OF_DAY=true
-```
-
-- `STORE_URL` → link que se manda en el saludo  
-- `OWNER_WHATSAPP` → tu número (código país, sin `+`)
+Si ves `EADDRINUSE` en el puerto 5000, ya hay un backend corriendo: cerralo o liberá el puerto antes de abrir otro.
 
 ---
 
-## Pagos (negocio)
+## Qué incluye el sistema (resumen de lo construido)
 
-| Método | En la app | En la entrega |
-|--------|-----------|---------------|
-| **Efectivo** | Cliente indica billetes / monedas / **Pago cabal** | Se cobra en la puerta |
-| **Tarjeta** | Elige POS | Llevás el **terminal** a la casa |
+### Tienda (cliente)
 
-- La **factura** se genera al pasar el pedido a **En camino** (`TDA-2026-00001`).
-- En la factura figuran los **billetes** con los que paga el cliente y el **vuelto cabal** que debe llevar el repartidor.
-- Al marcar *En camino*, WhatsApp manda esa factura al dueño (`OWNER_WHATSAPP`) para el reparto.
-- En admin → Pedidos podés registrar el cobro real en efectivo.
+- Marca **La Granjita** (logo, colores, textos)
+- Catálogo, búsqueda, categorías, destacados
+- **Variantes por unidad y/o peso** (el admin decide; el cliente elige)
+  - En admin solo ponés el número: `5` + Unidad → **“5 unidades”**; `5` + Peso → **“5 lb”**
+- Carrito y checkout
+- **Pedido mínimo Q 15**
+- **Horario:** lun–sáb, 10:30 am–3:00 pm y 4:00 pm–8:00 pm (receso 3–4 pm)
+- **Domingo cerrado** por defecto (el admin puede habilitar un domingo puntual)
+- Descansos planificados y cierre de emergencia
+- **Zona de entrega:** solo residenciales de **San José Pinula**
+- Pago: efectivo (billetes + vuelto) o POS en casa
+- Aviso amable si la tienda está cerrada
+- Página **Acerca de** explicando cómo pedir
+- Botón WhatsApp
+
+### Panel admin
+
+| Ruta | Para qué sirve |
+|------|----------------|
+| `/admin` | **Dashboard** — cola de pedidos de la **última hora** (el más antiguo primero), cambiar estados al toque |
+| `/admin/stats` | **Estadísticas** con gráficos (ventas por hora, 7 días, pagos, top productos) |
+| `/admin/stock` | **Inventario** — reponer, ver bajo/agotado |
+| `/admin/products` | Productos, variantes, stock, destacados |
+| `/admin/categories` | Categorías |
+| `/admin/orders` | Todos los pedidos, facturas, billetes |
+| `/admin/invoices` | Listado de facturas |
+| `/admin/store` | Calendario: descansos, domingos especiales, mínimo, cierre |
+| `/admin/whatsapp` | Vincular WA (código o QR), prueba, desvincular |
+| `/admin/about` | Manual del panel |
+
+Menú lateral **plegable** con el botón **☰ Menú** (arriba a la izquierda).  
+**Campana 🔔** de alertas de stock en la barra superior.
+
+### Stock y alertas
+
+- Cada venta **descuenta stock**
+- Si quedan **≤ umbral** (por defecto 5) → aviso en la campana + **WhatsApp al dueño**
+- Si llega a **0** → se marca **Agotado** en la tienda + aviso
+
+### WhatsApp (negocio)
+
+- Vinculación **una sola vez** (sesión en el PC)
+- Nuevo pedido → aviso al dueño
+- Confirmación y factura al cliente
+- Menús automáticos (pedido, atención, modificar)
+- Alertas de stock bajo / agotado
+
+### Seguridad
+
+- Rutas de admin con **JWT** (sin contraseña → **401**)
+- Rate limit en login y API
+- QR de WhatsApp **solo con login admin**
+- Facturas y reenvíos protegidos
+- `.env` no se sube a Git
 
 ---
 
-## Admin
+## Flujo del pedido (estados)
 
-| Ruta | Uso |
-|------|-----|
-| `/admin/login` | Entrar |
-| `/admin` | Dashboard |
-| `/admin/categories` | Crear / ocultar / borrar categorías |
-| `/admin/products` | Productos + destacados |
-| `/admin/orders` | Estados, factura, billetes |
+En el dashboard o en Pedidos podés avanzar:
 
-Tuerca del admin en la tienda: **10 toques al logo** (sin contador visible).
+```
+Nuevo → Confirmado → En proceso → Listo / En camino → Entregado
+                         ↘ Cancelado
+```
 
----
-
-## API rápida
-
-| Método | Ruta | Auth | Descripción |
-|--------|------|------|-------------|
-| GET | `/api/health` | — | Estado + WhatsApp |
-| POST | `/api/auth/login` | — | `{ "password" }` |
-| GET | `/api/categories` | — | Categorías activas |
-| GET | `/api/products` | — | Catálogo |
-| POST | `/api/orders` | — | Crear pedido (+ `cashIntent`) |
-| GET | `/api/orders/admin` | JWT | Pedidos |
-| PATCH | `/api/orders/:id/status` | JWT | Estado (factura en `in_transit`) |
-| POST | `/api/orders/:id/cash-payment` | JWT | Cobro efectivo real |
+- **En camino:** se trabaja con factura PDF y avisos WhatsApp  
+- En la cola del dashboard, el **#1** es el más antiguo de la última hora (atenderlo primero)
 
 ---
 
-## Seguridad
+## Productos: unidad y peso
 
-- Cambiá `ADMIN_PASSWORD` y `JWT_SECRET` en producción  
-- No subas `.env` ni `.wwebjs_auth/`  
-- CORS permite `localhost` y `127.0.0.1` en desarrollo  
+1. En **Productos**, marcá **Por unidad**, **Por peso**, o **ambas**.  
+2. Agregá variantes solo con **cantidad (número)** + **precio Q**.  
+3. El sistema genera el nombre:
+   - `5` + unidad → **5 unidades**
+   - `5` + peso → **5 lb**
+4. Si hay **ambas** formas, el cliente en la tienda elige primero “por unidad” o “por peso” y después la opción.
 
-## Licencia
+No hay precio general arriba: **el precio es el de cada variante**. En la tarjeta se muestra “desde Q …”.
 
-Uso personal / comercial del dueño del proyecto.
+---
+
+## Variables de entorno
+
+### `backend/.env` (copiar de `.env.example`)
+
+| Variable | Ejemplo | Uso |
+|----------|---------|-----|
+| `ADMIN_PASSWORD` | `emadiana123` | Login del panel |
+| `JWT_SECRET` | string largo | Firma de tokens admin |
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017/tienda` | Base de datos |
+| `OWNER_WHATSAPP` | `50254973412` | WhatsApp del dueño |
+| `STORE_URL` | URL de la tienda | Links en mensajes WA |
+| `CORS_ORIGIN` | URLs del frontend | Orígenes permitidos |
+| `WA_PUBLIC_PANEL` | `false` | No exponer QR en la raíz del API |
+
+### `frontend/.env.local`
+
+| Variable | Ejemplo | Uso |
+|----------|---------|-----|
+| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:5000/api` | Backend |
+| `NEXT_PUBLIC_WHATSAPP` | `50254973412` | Botón flotante WA |
+
+---
+
+## Estructura del proyecto
+
+```
+tienda/  (repo: granjita-app)
+├── frontend/          # Next.js — tienda + admin
+│   ├── public/        # logo la-granjita.png, favicon
+│   └── src/
+│       ├── app/       # páginas (/, /admin/*, /acerca-de)
+│       ├── components/
+│       ├── lib/
+│       └── store/
+├── backend/           # Express + Mongo + WhatsApp
+│   ├── src/
+│   │   ├── controllers/
+│   │   ├── models/
+│   │   ├── routes/
+│   │   ├── services/  # WA, stock, horarios, facturas
+│   │   └── middleware/ # auth + seguridad
+│   └── data/          # settings y alertas (local, no git)
+├── start-all.bat
+├── start-all.ps1
+└── README.md
+```
+
+Repo GitHub: https://github.com/ProgrammerSosa/granjita-app
+
+---
+
+## Checklist para el comprador / dueño nuevo
+
+1. [ ] Instalar Node.js y MongoDB  
+2. [ ] Copiar `.env` y `.env.local` desde los examples  
+3. [ ] Poner tu `OWNER_WHATSAPP` y `NEXT_PUBLIC_WHATSAPP`  
+4. [ ] `npm install` en backend y frontend  
+5. [ ] Arrancar backend y frontend  
+6. [ ] Entrar a admin con `emadiana123` (y **cambiar** la clave si es producción)  
+7. [ ] Admin → WhatsApp → vincular el número (una vez)  
+8. [ ] Crear categorías y productos (con variantes unidad/peso)  
+9. [ ] Probar un pedido de prueba en la tienda  
+10. [ ] Revisar cola en Dashboard y stock  
+
+---
+
+## Problemas frecuentes
+
+| Problema | Solución |
+|----------|----------|
+| `EADDRINUSE :::5000` | Ya hay un backend; cerralo o matá el proceso del puerto 5000 |
+| ERR_CONNECTION_REFUSED | Falta arrancar frontend y/o backend |
+| Stats / stock en 404 | Reiniciá el backend para cargar el código nuevo |
+| WhatsApp pide QR otra vez | No borres `.tienda-wwebjs-auth`; no desvincules el dispositivo |
+| Login admin no entra | Revisá `ADMIN_PASSWORD` en `backend/.env` y reiniciá backend |
+
+---
+
+## Licencia / uso
+
+Uso personal o comercial del dueño del proyecto / comprador del sistema.
+
+---
+
+**La Granjita** — de la granja a tu puerta · San José Pinula
