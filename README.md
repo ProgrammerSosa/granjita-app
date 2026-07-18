@@ -269,6 +269,25 @@ Repo GitHub: https://github.com/ProgrammerSosa/granjita-app
 
 ---
 
+## Desplegar en Railway (producción)
+
+Hay una guía completa en **[DEPLOY-RAILWAY.md](./DEPLOY-RAILWAY.md)**.
+
+Resumen:
+
+1. Conectá el repo de GitHub en [railway.app](https://railway.app)  
+2. Creá **3 servicios**: MongoDB + `backend` (Root Directory: `backend`) + `frontend` (Root Directory: `frontend`)  
+3. Variables backend: `MONGODB_URI`, `ADMIN_PASSWORD`, `JWT_SECRET`, `CORS_ORIGIN`, `STORE_URL`, …  
+4. Variables frontend: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WHATSAPP`  
+5. Generá dominio público en cada servicio web  
+
+**Admin en producción:** `https://tu-frontend.up.railway.app/admin/login`  
+**Contraseña:** la de `ADMIN_PASSWORD` (local de referencia: `emadiana123`)
+
+> WhatsApp en Railway es opcional y frágil (sesión/Chrome). Para debutar usá `WHATSAPP_ENABLED=false`. Detalle en `DEPLOY-RAILWAY.md`.
+
+---
+
 ## Licencia / uso
 
 Uso personal o comercial del dueño del proyecto / comprador del sistema.

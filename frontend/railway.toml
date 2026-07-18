@@ -1,0 +1,13 @@
+# Railway — servicio Frontend (Next.js)
+# En el dashboard: Root Directory = frontend
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm install && npm run build"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

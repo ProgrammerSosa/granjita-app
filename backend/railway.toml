@@ -1,0 +1,13 @@
+# Railway — servicio Backend (API)
+# En el dashboard: Root Directory = backend
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm install"
+
+[deploy]
+startCommand = "npm start"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

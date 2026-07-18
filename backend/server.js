@@ -64,6 +64,9 @@ const { authenticateAdmin } = require('./src/middleware/auth');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Railway / proxies: IP real para rate-limit y logs
+app.set('trust proxy', 1);
+
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });

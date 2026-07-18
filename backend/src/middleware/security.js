@@ -73,6 +73,14 @@ function assertSecurityConfig() {
     else warnings.push(msg + ' — usá un string largo aleatorio');
   }
 
+  if (isProd() && !process.env.MONGODB_URI) {
+    fatals.push('MONGODB_URI no configurado');
+  }
+
+  if (isProd() && !process.env.CORS_ORIGIN) {
+    warnings.push('CORS_ORIGIN vacío — el frontend en otro dominio puede fallar por CORS');
+  }
+
   warnings.forEach((w) => console.warn(`[Seguridad] ⚠️  ${w}`));
   if (fatals.length) {
     console.error('[Seguridad] ❌ Configuración insegura en producción:');
