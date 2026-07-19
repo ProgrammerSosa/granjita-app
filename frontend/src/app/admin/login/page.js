@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { loginAdmin } from '@/lib/api';
 import useAuthStore from '@/store/useAuthStore';
+import BrandLogo from '@/components/BrandLogo';
+import Link from 'next/link';
 
 export default function AdminLoginPage() {
   const [password, setPassword] = useState('');
@@ -16,47 +18,60 @@ export default function AdminLoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
+
     try {
       const data = await loginAdmin(password);
       login(data.token);
       router.push('/admin');
     } catch (err) {
-      setError(err.message || 'Contrasena incorrecta');
+      setError(err.message || 'Contraseña incorrecta');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-orange-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen relative flex items-center justify-center p-4 overflow-hidden">
+      <div className="absolute inset-0 bg-hero-mesh" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_rgba(249,115,22,0.25),_transparent_60%)]" />
+
+      <div className="relative w-full max-w-sm">
         <div className="text-center mb-8">
-          <img src="/images/logo.png" alt="Granjita" className="w-16 h-16 rounded-2xl object-cover mx-auto mb-4 shadow-lg shadow-orange-500/30" />
-          <h1 className="text-2xl font-black text-white">GRANJITA</h1>
-          <p className="text-gray-400 text-sm mt-1">Panel de administracion</p>
+          <div className="mx-auto mb-4 w-fit shadow-2xl rounded-[1.5rem]">
+            <BrandLogo size={88} rounded="rounded-[1.5rem]" ring={false} className="ring-2 ring-white/40" />
+          </div>
+          <h1 className="text-3xl font-black text-white tracking-tight drop-shadow-sm">
+            La Granjita
+          </h1>
+          <p className="text-primary-100/90 text-sm mt-1.5 font-medium">
+            Panel de administración
+          </p>
         </div>
 
-        <div className="bg-white/10 backdrop-blur-xl rounded-2xl p-6 border border-white/10 shadow-2xl">
-          <h2 className="text-lg font-bold text-white text-center mb-6">Iniciar sesion</h2>
+        <div className="bg-white/12 backdrop-blur-xl rounded-3xl p-6 border border-white/20 shadow-2xl">
+          <h2 className="text-lg font-bold text-white text-center mb-1">Bienvenido/a</h2>
+          <p className="text-center text-white/60 text-xs mb-6">
+            Entrá para manejar pedidos, catálogo y horarios
+          </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
-                Contrasena
+              <label className="text-xs font-semibold text-white/70 uppercase tracking-wider">
+                Contraseña
               </label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-gray-500 focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all mt-1"
-                placeholder="Ingresa la contrasena"
+                className="w-full px-4 py-3.5 rounded-2xl bg-white/10 border border-white/25 text-white placeholder:text-white/40 focus:ring-2 focus:ring-primary-400 focus:border-primary-400 outline-none transition-all mt-1"
+                placeholder="Ingresá la contraseña"
                 autoFocus
                 required
               />
             </div>
 
             {error && (
-              <div className="bg-red-500/20 border border-red-500/30 text-red-300 text-sm p-3 rounded-xl">
+              <div className="bg-red-500/20 border border-red-400/40 text-red-100 text-sm p-3 rounded-xl">
                 {error}
               </div>
             )}
@@ -64,20 +79,23 @@ export default function AdminLoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-orange-500 text-white py-3 rounded-xl font-semibold hover:bg-orange-600 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full bg-gradient-to-r from-primary-500 to-primary-600 text-ink-950 py-3.5 rounded-2xl font-black hover:from-primary-400 hover:to-primary-500 active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-primary-900/40"
             >
               {loading ? (
-                <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span className="w-5 h-5 border-2 border-ink-950 border-t-transparent rounded-full animate-spin" />
               ) : (
-                'Entrar'
+                'Entrar al panel'
               )}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-gray-500 text-xs mt-6">
-          Solo para administradores
-        </p>
+        <Link
+          href="/"
+          className="block text-center text-white/70 text-sm mt-6 hover:text-white font-medium"
+        >
+          ← Volver a la tienda
+        </Link>
       </div>
     </div>
   );

@@ -1,222 +1,477 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { fetchAdminStats } from '@/lib/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import {
+  fetchAllOrders,
+  fetchAdminStats,
+  fetchStockOverview,
+  updateOrderStatus,
+  formatMoney,
+} from '@/lib/api';
+import { gtTodayStr, formatGtTime, formatMoneyQ } from '@/lib/dates';
+import useToastStore from '@/store/useToastStore';
 
-const STATUS_LABELS = {
-  pending: 'Pendiente',
-  confirmed: 'Confirmado',
-  preparing: 'Preparando',
-  in_transit: 'En camino',
-  delivered: 'Entregado',
-  cancelled: 'Cancelado',
-};
+/** Flujo operativo del negocio (orden mental del admin) */
+const FLOW = [
+  {
+    value: 'pending',
+    label: 'Nuevo',
+    short: 'Nuevo',
+    hint: 'Recién entró',
+    color: 'bg-amber-100 text-amber-900 border-amber-300',
+    btn: 'bg-amber-500 hover:bg-amber-600 text-white',
+  },
+  {
+    value: 'confirmed',
+    label: 'Confirmado',
+    short: 'OK',
+    hint: 'Aceptado',
+    color: 'bg-orange-100 text-orange-900 border-orange-300',
+    btn: 'bg-orange-500 hover:bg-orange-600 text-white',
+  },
+  {
+    value: 'preparing',
+    label: 'En proceso',
+    short: 'Proceso',
+    hint: 'Preparando',
+    color: 'bg-sky-100 text-sky-900 border-sky-300',
+    btn: 'bg-sky-500 hover:bg-sky-600 text-white',
+  },
+  {
+    value: 'in_transit',
+    label: 'Listo / En camino',
+    short: 'Listo',
+    hint: 'Sale a entregar',
+    color: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+    btn: 'bg-indigo-500 hover:bg-indigo-600 text-white',
+  },
+  {
+    value: 'delivered',
+    label: 'Entregado',
+    short: 'Entregado',
+    hint: 'Listo',
+    color: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+    btn: 'bg-emerald-500 hover:bg-emerald-600 text-white',
+  },
+  {
+    value: 'cancelled',
+    label: 'Cancelado',
+    short: 'Cancelar',
+    hint: 'No va',
+    color: 'bg-red-100 text-red-800 border-red-300',
+    btn: 'bg-red-500 hover:bg-red-600 text-white',
+  },
+];
 
-const STATUS_COLORS = {
-  pending: 'badge-yellow',
-  confirmed: 'badge-blue',
-  preparing: 'badge-orange',
-  in_transit: 'badge-blue',
-  delivered: 'badge-green',
-  cancelled: 'badge-red',
-};
+const ACTIVE = new Set(['pending', 'confirmed', 'preparing', 'in_transit']);
+const HOUR_MS = 60 * 60 * 1000;
 
-export default function AdminDashboard() {
+function statusMeta(value) {
+  return FLOW.find((s) => s.value === value) || FLOW[0];
+}
+
+function minutesAgo(iso) {
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'ahora';
+  if (m === 1) return '1 min';
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h`;
+}
+
+export default function AdminHomePage() {
+  const [orders, setOrders] = useState([]);
   const [stats, setStats] = useState(null);
+  const [stock, setStock] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [updatingId, setUpdatingId] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const toast = useToastStore((s) => s.success);
+  const toastError = useToastStore((s) => s.error);
 
-  useEffect(() => {
-    loadStats();
-  }, [selectedDate]);
-
-  async function loadStats() {
+  const load = useCallback(async () => {
     try {
-      setLoading(true);
-      const data = await fetchAdminStats(selectedDate);
-      setStats(data);
+      const day = gtTodayStr();
+      const [ordRes, st, sk] = await Promise.all([
+        fetchAllOrders({ date: day, limit: 100, page: 1 }),
+        fetchAdminStats(day).catch(() => null),
+        fetchStockOverview().catch(() => null),
+      ]);
+      setOrders(ordRes?.data || []);
+      setStats(st);
+      setStock(sk);
     } catch (err) {
-      console.error('Error cargando stats:', err);
+      console.error(err);
+      toastError(err.message || 'Error cargando dashboard');
     } finally {
       setLoading(false);
     }
+  }, [toastError]);
+
+  useEffect(() => {
+    load();
+    const poll = setInterval(load, 20_000);
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => {
+      clearInterval(poll);
+      clearInterval(tick);
+    };
+  }, [load]);
+
+  /** Pedidos de la última hora (usa `now` para refrescar cada 30s) */
+  const lastHourOrders = useMemo(() => {
+    void now;
+    const cutoff = Date.now() - HOUR_MS;
+    return (orders || [])
+      .filter((o) => new Date(o.createdAt).getTime() >= cutoff)
+      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)); // más viejo primero
+  }, [orders, now]);
+
+  /** Cola activa (sin entregados/cancelados) — el #1 es el que va primero */
+  const queue = useMemo(
+    () => lastHourOrders.filter((o) => ACTIVE.has(o.orderStatus)),
+    [lastHourOrders]
+  );
+
+  const doneRecent = useMemo(
+    () =>
+      lastHourOrders.filter(
+        (o) => o.orderStatus === 'delivered' || o.orderStatus === 'cancelled'
+      ),
+    [lastHourOrders]
+  );
+
+  const counts = useMemo(() => {
+    const c = { pending: 0, confirmed: 0, preparing: 0, in_transit: 0 };
+    queue.forEach((o) => {
+      if (c[o.orderStatus] !== undefined) c[o.orderStatus] += 1;
+    });
+    return c;
+  }, [queue]);
+
+  async function setStatus(orderId, orderStatus) {
+    setUpdatingId(orderId);
+    try {
+      await updateOrderStatus(orderId, { orderStatus });
+      toast(
+        orderStatus === 'cancelled'
+          ? 'Pedido cancelado'
+          : orderStatus === 'delivered'
+            ? 'Marcado entregado'
+            : `Estado → ${statusMeta(orderStatus).label}`
+      );
+      await load();
+    } catch (err) {
+      toastError(err.message || 'No se pudo actualizar');
+    } finally {
+      setUpdatingId(null);
+    }
   }
 
-  function formatCurrency(amount) {
-    return `Q ${amount.toLocaleString('es-GT')}`;
+  /** Siguiente estado lógico en el flujo */
+  function nextSteps(current) {
+    const order = ['pending', 'confirmed', 'preparing', 'in_transit', 'delivered'];
+    const i = order.indexOf(current);
+    if (i === -1 || current === 'cancelled' || current === 'delivered') return [];
+    return order.slice(i + 1, i + 3); // próximos 1–2 pasos
   }
 
-  if (loading) {
+  if (loading && orders.length === 0) {
     return (
-      <div className="space-y-4">
-        <div className="h-8 bg-gray-200 rounded-lg w-48 animate-pulse" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 bg-gray-200 rounded-xl animate-pulse" />
-          ))}
-        </div>
+      <div className="space-y-4 animate-pulse">
+        <div className="h-24 bg-admin-200 rounded-2xl" />
+        <div className="h-40 bg-admin-200 rounded-2xl" />
+        <div className="h-40 bg-admin-200 rounded-2xl" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+    <div className="space-y-5 max-w-5xl">
+      {/* 1. Cabecera clara */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Resumen de ventas del día</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-primary-600">
+            Control en vivo
+          </p>
+          <h1 className="text-2xl font-black text-admin-900">Dashboard</h1>
+          <p className="text-sm text-admin-500">
+            Cola de la <strong>última hora</strong> · el de arriba es el más antiguo (va primero)
+          </p>
         </div>
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="input-admin"
-        />
+        <button type="button" onClick={load} className="btn-admin text-sm py-2.5">
+          Actualizar
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card-admin p-5 hover:shadow-md transition-shadow">
-          <div className="flex gap-3">
-            <div className="w-11 h-11 bg-orange-100 rounded-xl flex items-center justify-center">
-              <svg className="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-gray-500 text-xs font-medium">Pedidos hoy</p>
-              <p className="text-2xl font-black text-gray-900">{stats?.totalOrders || 0}</p>
-            </div>
-          </div>
+      {/* 2. Números principales (orden: atención → plata → stock) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="card-admin p-4 border-2 border-amber-200 bg-amber-50/50">
+          <p className="text-[10px] font-bold uppercase text-amber-700">En cola (1h)</p>
+          <p className="text-3xl font-black text-amber-950">{queue.length}</p>
+          <p className="text-[11px] text-amber-800/80 font-medium">
+            {counts.pending} nuevos · {counts.preparing} en proceso
+          </p>
         </div>
-
-        <div className="card-admin p-5 hover:shadow-md transition-shadow">
-          <div className="flex gap-3">
-            <div className="w-11 h-11 bg-green-100 rounded-xl flex items-center justify-center">
-              <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-gray-500 text-xs font-medium">Ingresos totales</p>
-              <p className="text-2xl font-black text-gray-900">{formatCurrency(stats?.totalRevenue || 0)}</p>
-            </div>
-          </div>
+        <div className="card-admin p-4">
+          <p className="text-[10px] font-bold uppercase text-admin-400">Ventas hoy</p>
+          <p className="text-2xl font-black text-primary-600">
+            {stats ? formatMoneyQ(stats.totalRevenue) : '—'}
+          </p>
+          <p className="text-[11px] text-admin-500">{stats?.totalOrders ?? 0} pedidos hoy</p>
         </div>
-
-        <div className="card-admin p-5 hover:shadow-md transition-shadow">
-          <div className="flex gap-3">
-            <div className="w-11 h-11 bg-yellow-100 rounded-xl flex items-center justify-center">
-              <svg className="w-5 h-5 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-gray-500 text-xs font-medium">Efectivo ({stats?.cashOrders || 0})</p>
-              <p className="text-2xl font-black text-gray-900">{formatCurrency(stats?.cashRevenue || 0)}</p>
-            </div>
-          </div>
+        <div className="card-admin p-4">
+          <p className="text-[10px] font-bold uppercase text-admin-400">Stock bajo</p>
+          <p className="text-2xl font-black text-amber-600">{stock?.counts?.low ?? 0}</p>
+          <Link href="/admin/stock" className="text-[11px] font-bold text-primary-700">
+            Ver stock →
+          </Link>
         </div>
-
-        <div className="card-admin p-5 hover:shadow-md transition-shadow">
-          <div className="flex gap-3">
-            <div className="w-11 h-11 bg-blue-100 rounded-xl flex items-center justify-center">
-              <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-gray-500 text-xs font-medium">Tarjeta ({stats?.cardOrders || 0})</p>
-              <p className="text-2xl font-black text-gray-900">{formatCurrency(stats?.cardRevenue || 0)}</p>
-            </div>
-          </div>
+        <div className="card-admin p-4">
+          <p className="text-[10px] font-bold uppercase text-admin-400">Agotados</p>
+          <p className="text-2xl font-black text-red-600">{stock?.counts?.out ?? 0}</p>
+          <Link href="/admin/stats" className="text-[11px] font-bold text-primary-700">
+            Estadísticas →
+          </Link>
         </div>
       </div>
 
-      {stats?.statusCounts && Object.keys(stats.statusCounts).length > 0 && (
-        <div className="card-admin p-5">
-          <h3 className="text-sm font-bold text-gray-700 mb-3">Pedidos por estado</h3>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(stats.statusCounts).map(([status, count]) => (
-              <span key={status} className={`${STATUS_COLORS[status] || 'badge-gray'} text-xs`}>
-                {STATUS_LABELS[status] || status}: {count}
+      {/* 3. Pipeline visual */}
+      <div className="card-admin p-4">
+        <p className="text-xs font-bold uppercase tracking-wide text-admin-400 mb-3">
+          Flujo del pedido
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs font-bold">
+          {FLOW.filter((s) => s.value !== 'cancelled').map((s, i, arr) => (
+            <div key={s.value} className="flex items-center gap-1.5 sm:gap-2">
+              <span className={`px-2.5 py-1.5 rounded-xl border ${s.color}`}>
+                {s.label}
+                {counts[s.value] != null && counts[s.value] > 0 && (
+                  <span className="ml-1 opacity-70">({counts[s.value]})</span>
+                )}
               </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {stats?.topProducts?.length > 0 && (
-          <div className="card-admin p-5">
-            <h3 className="text-sm font-bold text-gray-700 mb-3">Productos más vendidos</h3>
-            <div className="space-y-0">
-              {stats.topProducts.map((p, i) => (
-                <div key={i} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
-                  <div className="flex items-center gap-3">
-                    <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold ${
-                      i === 0 ? 'bg-yellow-100 text-yellow-700' :
-                      i === 1 ? 'bg-gray-100 text-gray-600' :
-                      i === 2 ? 'bg-orange-100 text-orange-700' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {i + 1}
-                    </span>
-                    <span className="text-sm font-semibold text-gray-800">{p._id}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-bold text-gray-900">{p.totalSold} u.</span>
-                    <span className="text-xs text-gray-500 ml-2">{formatCurrency(p.totalRevenue)}</span>
-                  </div>
-                </div>
-              ))}
+              {i < arr.length - 1 && <span className="text-admin-300">→</span>}
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 4. COLA PRINCIPAL — lo más importante */}
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-black text-admin-900">Cola de pedidos</h2>
+            <p className="text-xs text-admin-500">
+              Orden: del más antiguo → al más reciente · tocá el estado para avanzar
+            </p>
+          </div>
+          <span className="text-xs font-black bg-ink-900 text-white px-3 py-1.5 rounded-full">
+            {queue.length} activos
+          </span>
+        </div>
+
+        {queue.length === 0 ? (
+          <div className="card-admin p-10 text-center">
+            <p className="text-4xl mb-2">🌿</p>
+            <p className="font-black text-admin-800">No hay pedidos activos en la última hora</p>
+            <p className="text-sm text-admin-400 mt-1">
+              Cuando entre uno, aparece acá primero el más viejo
+            </p>
+            <Link href="/admin/orders" className="btn-admin inline-flex mt-4 text-sm">
+              Ver todos los pedidos
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {queue.map((order, index) => {
+              const meta = statusMeta(order.orderStatus);
+              const shortId = String(order._id).slice(-6).toUpperCase();
+              const steps = nextSteps(order.orderStatus);
+              const isFirst = index === 0;
+              const busy = updatingId === order._id;
+
+              return (
+                <article
+                  key={order._id}
+                  className={`card-admin overflow-hidden border-2 transition-shadow ${
+                    isFirst
+                      ? 'border-primary-400 shadow-lift ring-2 ring-primary-200'
+                      : 'border-admin-100'
+                  }`}
+                >
+                  {isFirst && (
+                    <div className="bg-gradient-to-r from-primary-600 to-primary-500 text-ink-950 text-xs font-black px-4 py-1.5 tracking-wide">
+                      👉 SIGUIENTE · prepará este primero
+                    </div>
+                  )}
+                  <div className="p-4 sm:p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div
+                          className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shrink-0 ${
+                            isFirst
+                              ? 'bg-primary-500 text-ink-950'
+                              : 'bg-admin-100 text-admin-600'
+                          }`}
+                        >
+                          #{index + 1}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-black text-admin-900">
+                              Pedido #{shortId}
+                            </h3>
+                            <span
+                              className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${meta.color}`}
+                            >
+                              {meta.label}
+                            </span>
+                            <span className="text-[11px] font-semibold text-admin-400">
+                              hace {minutesAgo(order.createdAt)} · {formatGtTime(order.createdAt)}
+                            </span>
+                          </div>
+                          <p className="text-sm font-bold text-admin-800 mt-0.5">
+                            {order.customer?.name || 'Cliente'}
+                          </p>
+                          <p className="text-xs text-admin-500 truncate max-w-md">
+                            {order.customer?.zone ? `${order.customer.zone} · ` : ''}
+                            {order.customer?.address}
+                          </p>
+                          <p className="text-xs text-admin-400 mt-0.5">
+                            {order.paymentMethod === 'cash' ? '💵 Efectivo' : '💳 POS'}
+                            {order.customer?.phone ? ` · ${order.customer.phone}` : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xl font-black text-primary-600">
+                          {formatMoney(order.total)}
+                        </p>
+                        <p className="text-[11px] text-admin-400">
+                          {(order.items || []).length} ítem(s)
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Ítems resumidos */}
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {(order.items || []).slice(0, 6).map((it, i) => (
+                        <span
+                          key={i}
+                          className="text-[11px] font-semibold bg-admin-50 border border-admin-100 px-2 py-1 rounded-lg text-admin-700"
+                        >
+                          {it.quantity}× {it.productName}
+                        </span>
+                      ))}
+                      {(order.items || []).length > 6 && (
+                        <span className="text-[11px] text-admin-400 font-medium px-2 py-1">
+                          +{(order.items || []).length - 6} más
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Acciones de estado */}
+                    <div className="mt-4 pt-3 border-t border-admin-100">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-admin-400 mb-2">
+                        Cambiar estado
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {steps.map((st) => {
+                          const m = statusMeta(st);
+                          return (
+                            <button
+                              key={st}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setStatus(order._id, st)}
+                              className={`px-3 py-2 rounded-xl text-xs font-black transition-all disabled:opacity-50 ${m.btn}`}
+                            >
+                              → {m.short}
+                            </button>
+                          );
+                        })}
+                        {order.orderStatus !== 'cancelled' && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setStatus(order._id, 'cancelled')}
+                            className="px-3 py-2 rounded-xl text-xs font-black border-2 border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+                        {busy && (
+                          <span className="text-xs text-admin-400 self-center font-medium">
+                            Guardando…
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
+      </section>
 
-        {stats?.hourlySales?.some(v => v > 0) && (
-          <div className="card-admin p-5">
-            <h3 className="text-sm font-bold text-gray-700 mb-3">Ventas por hora</h3>
-            <div className="flex items-end gap-1 h-36">
-              {stats.hourlySales.slice(8, 22).map((amount, i) => {
-                const maxAmount = Math.max(...stats.hourlySales.filter(v => v > 0), 1);
-                const height = Math.max((amount / maxAmount) * 100, amount > 0 ? 4 : 0);
+      {/* 5. Recientes cerrados (última hora) */}
+      {doneRecent.length > 0 && (
+        <section>
+          <h2 className="text-sm font-black text-admin-700 mb-2">
+            Cerrados en la última hora
+          </h2>
+          <div className="card-admin divide-y divide-admin-100">
+            {doneRecent
+              .slice()
+              .reverse()
+              .map((order) => {
+                const meta = statusMeta(order.orderStatus);
+                const shortId = String(order._id).slice(-6).toUpperCase();
                 return (
-                  <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <div
-                      className="w-full rounded-t-md transition-all duration-500 hover:opacity-80"
-                      style={{
-                        height: `${height}%`,
-                        background: amount > 0
-                          ? 'linear-gradient(to top, #ea580c, #f97316)'
-                          : '#e2e8f0',
-                      }}
-                      title={`${i + 8}:00 - ${formatCurrency(amount)}`}
-                    />
-                    <span className="text-[9px] text-gray-400 font-medium">{i + 8}</span>
+                  <div
+                    key={order._id}
+                    className="px-4 py-3 flex flex-wrap items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-black text-admin-800">#{shortId}</span>
+                      <span className="text-sm text-admin-600 truncate">
+                        {order.customer?.name}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${meta.color}`}
+                      >
+                        {meta.label}
+                      </span>
+                    </div>
+                    <div className="text-xs font-semibold text-admin-500">
+                      {formatMoney(order.total)} · {formatGtTime(order.createdAt)}
+                    </div>
                   </div>
                 );
               })}
-            </div>
           </div>
-        )}
-      </div>
-
-      {(!stats?.totalOrders || stats.totalOrders === 0) && (
-        <div className="card-admin p-10 text-center">
-          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-10 h-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <p className="text-gray-600 font-bold text-lg">Sin ventas este día</p>
-          <p className="text-gray-400 text-sm mt-1.5">Las estadísticas aparecerán cuando haya pedidos</p>
-        </div>
+        </section>
       )}
+
+      {/* 6. Atajos (secundarios, al final para no distraer) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { href: '/admin/orders', label: 'Todos los pedidos', icon: '🛵' },
+          { href: '/admin/stats', label: 'Estadísticas', icon: '📊' },
+          { href: '/admin/stock', label: 'Stock', icon: '📦' },
+          { href: '/admin/whatsapp', label: 'WhatsApp', icon: '💬' },
+        ].map((l) => (
+          <Link
+            key={l.href}
+            href={l.href}
+            className="card-admin p-3 text-center hover:border-primary-300 hover:shadow-sm transition-all"
+          >
+            <span className="text-xl">{l.icon}</span>
+            <p className="text-xs font-bold text-admin-800 mt-1">{l.label}</p>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

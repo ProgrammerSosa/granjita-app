@@ -1,11 +1,11 @@
 {
-  "name": "granjita-frontend",
-  "version": "1.1.0",
+  "name": "tienda-frontend",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0",
     "build": "next build",
-    "start": "next start"
+    "start": "next start -H 0.0.0.0 -p ${PORT:-3000}"
   },
   "dependencies": {
     "next": "^14.2.0",
