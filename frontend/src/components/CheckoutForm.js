@@ -137,6 +137,7 @@ export default function CheckoutForm({ onBack, onDone, storeStatus }) {
           variantName: item.variant?.name || null,
           extras: item.extras.map((ex) => ex.name),
           quantity: item.quantity,
+          unitType: item.unitType || (item.variant?.kind === 'weight' ? 'weight' : 'unit'),
         })),
         paymentMethod,
       };
@@ -255,15 +256,20 @@ export default function CheckoutForm({ onBack, onDone, storeStatus }) {
 
         <div className="card p-4 mt-4 space-y-2.5">
           <h4 className="font-bold text-sm text-ink-900">Resumen</h4>
-          {success.items.map((item, i) => (
+          {success.items.map((item, i) => {
+            const qtyLabel = item.unitType === 'weight'
+              ? `${Number(item.quantity).toFixed(1)} lb`
+              : `${item.quantity}x`;
+            return (
             <div key={i} className="flex justify-between text-sm">
               <span className="text-ink-600">
-                {item.quantity}x {item.productName}
+                {qtyLabel} {item.productName}
                 {item.variant?.name ? ` (${item.variant.name})` : ''}
               </span>
               <span className="font-semibold text-ink-900">{formatMoney(item.subtotal)}</span>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <button

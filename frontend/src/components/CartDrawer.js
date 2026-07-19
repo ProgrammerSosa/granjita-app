@@ -130,18 +130,26 @@ export default function CartDrawer({ open, onClose }) {
                       <div className="flex flex-col items-center gap-1.5">
                         <div className="flex items-center gap-1 bg-ink-50 rounded-xl p-0.5 border border-ink-200">
                           <button
-                            onClick={() => updateQuantity(index, item.quantity - 1)}
+                            onClick={() => {
+                              const step = item.unitType === 'weight' ? 0.5 : 1;
+                              const next = Math.max(step, Math.round((item.quantity - step) * 10) / 10);
+                              updateQuantity(index, next);
+                            }}
                             className="w-8 h-8 rounded-lg flex items-center justify-center
                                      hover:bg-white transition-colors text-sm font-bold text-ink-600"
                             aria-label="Menos"
                           >
                             -
                           </button>
-                          <span className="w-7 text-center text-sm font-bold text-ink-900">
-                            {item.quantity}
+                          <span className="min-w-[3rem] text-center text-sm font-bold text-ink-900">
+                            {item.unitType === 'weight' ? `${item.quantity.toFixed(1)} lb` : item.quantity}
                           </span>
                           <button
-                            onClick={() => updateQuantity(index, item.quantity + 1)}
+                            onClick={() => {
+                              const step = item.unitType === 'weight' ? 0.5 : 1;
+                              const next = Math.round((item.quantity + step) * 10) / 10;
+                              updateQuantity(index, next);
+                            }}
                             className="w-8 h-8 rounded-lg flex items-center justify-center
                                      hover:bg-white transition-colors text-sm font-bold text-ink-600"
                             aria-label="Más"

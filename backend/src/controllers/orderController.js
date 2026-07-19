@@ -346,6 +346,8 @@ exports.createOrder = async (req, res) => {
 
         unitPrice += extrasTotal;
 
+        const unitType = item.unitType || variantMeta.kind || 'unit';
+
         return {
           product: product._id,
           productName: product.name,
@@ -357,6 +359,7 @@ exports.createOrder = async (req, res) => {
           quantity: qty,
           unitPrice,
           subtotal: qty * unitPrice,
+          unitType,
         };
       })
     );

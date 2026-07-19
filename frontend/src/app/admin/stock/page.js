@@ -58,7 +58,8 @@ export default function AdminStockPage() {
   }, [data, filter, search]);
 
   async function saveStock(p) {
-    const n = Math.max(0, parseInt(drafts[p.id], 10));
+    const isWeight = p.sellByWeight;
+    const n = Math.max(0, isWeight ? (parseFloat(drafts[p.id]) || 0) : (parseInt(drafts[p.id], 10) || 0));
     if (Number.isNaN(n)) {
       toastError('Número inválido');
       return;
@@ -80,14 +81,15 @@ export default function AdminStockPage() {
   }
 
   async function quickAdd(p, delta) {
+    const isWeight = p.sellByWeight;
     const current = Number(drafts[p.id] ?? p.stock) || 0;
-    const next = Math.max(0, current + delta);
+    const next = Math.max(0, Math.round((current + delta) * 10) / 10);
     setDrafts((d) => ({ ...d, [p.id]: String(next) }));
     setBusyId(p.id);
     try {
       const res = await adjustProductStock(p.id, { stock: next });
       setData(res.overview);
-      toast(`${p.name}: ${next} u.`);
+      toast(`${p.name}: ${next}${isWeight ? ' lb' : ' u.'}`);
     } catch (err) {
       toastError(err.message || 'Error');
     } finally {
@@ -221,6 +223,7 @@ export default function AdminStockPage() {
                         <input
                           type="number"
                           min="0"
+                          step={p.sellByWeight ? '0.5' : '1'}
                           value={drafts[p.id] ?? p.stock}
                           onChange={(e) =>
                             setDrafts((d) => ({ ...d, [p.id]: e.target.value }))
@@ -237,18 +240,18 @@ export default function AdminStockPage() {
                           <button
                             type="button"
                             disabled={busyId === p.id}
-                            onClick={() => quickAdd(p, -1)}
+                            onClick={() => quickAdd(p, p.sellByWeight ? -0.5 : -1)}
                             className="px-2.5 py-1.5 rounded-lg border border-admin-200 text-xs font-bold hover:bg-admin-50"
                           >
-                            −1
+                            {p.sellByWeight ? '−0.5' : '−1'}
                           </button>
                           <button
                             type="button"
                             disabled={busyId === p.id}
-                            onClick={() => quickAdd(p, 5)}
+                            onClick={() => quickAdd(p, p.sellByWeight ? 0.5 : 5)}
                             className="px-2.5 py-1.5 rounded-lg border border-admin-200 text-xs font-bold hover:bg-admin-50"
                           >
-                            +5
+                            {p.sellByWeight ? '+0.5' : '+5'}
                           </button>
                           <button
                             type="button"

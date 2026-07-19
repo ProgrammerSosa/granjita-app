@@ -244,9 +244,9 @@ export default function CheckoutCashBills({ total, bills, onChange }) {
           </div>
         )}
 
-        <div className={enough ? 'opacity-80' : ''}>
+        <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-primary-400/90 mb-2 px-0.5">
-            Billetes {enough ? '· bloqueados (ya alcanza)' : ''}
+            Billetes {enough ? '· solo podés quitar, no agregar más' : ''}
           </p>
           <div className="grid grid-cols-2 gap-2">
             {BILL_DENOMS.map((d) => (
@@ -262,7 +262,7 @@ export default function CheckoutCashBills({ total, bills, onChange }) {
           </div>
         </div>
 
-        <div className={enough ? 'opacity-80' : ''}>
+        <div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-primary-400/90 mb-3 px-0.5">
             Monedas · quetzales y centavos
           </p>

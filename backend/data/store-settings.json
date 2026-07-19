@@ -1,0 +1,21 @@
+{
+  "minOrder": 15,
+  "timezone": "America/Guatemala",
+  "shifts": [
+    {
+      "start": "10:30",
+      "end": "15:00"
+    },
+    {
+      "start": "16:00",
+      "end": "20:00"
+    }
+  ],
+  "closedWeekdays": [
+    0
+  ],
+  "forceClosed": false,
+  "forceClosedReason": "",
+  "restDays": [],
+  "openDays": []
+}

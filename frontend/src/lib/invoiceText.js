@@ -53,8 +53,11 @@ export function buildInvoiceText(order) {
       ? ` + ${item.extras.map((e) => e.name || e).join(', ')}`
       : '';
     const variant = item.variant?.name ? ` (${item.variant.name})` : '';
+    const qtyLabel = item.unitType === 'weight'
+      ? `${item.quantity.toFixed(1)} lb`
+      : `${item.quantity}x`;
     lines.push(
-      `• ${item.quantity}x ${item.productName}${variant}${extras} — ${formatMoney(item.subtotal)}`
+      `• ${qtyLabel} ${item.productName}${variant}${extras} — ${formatMoney(item.subtotal)}`
     );
   });
   lines.push('');

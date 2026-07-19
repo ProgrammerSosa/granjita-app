@@ -144,6 +144,14 @@ export async function removeStoreRestDay(id) {
   return data.data;
 }
 
+export async function setStoreShifts(shifts) {
+  const data = await adminRequest('/store/admin/shifts', {
+    method: 'PUT',
+    body: JSON.stringify({ shifts }),
+  });
+  return data.data;
+}
+
 export async function setStoreMinOrder(minOrder) {
   const data = await adminRequest('/store/admin/min-order', {
     method: 'PUT',

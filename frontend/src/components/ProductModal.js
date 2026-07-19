@@ -101,6 +101,9 @@ export default function ProductModal({ product, onClose }) {
     );
   }
 
+  const qtyStep = sellMode === 'weight' ? 0.5 : 1;
+  const minQty = sellMode === 'weight' ? 0.5 : 1;
+
   function handleAdd() {
     if (product.available === false) return;
     if (bothModes && !sellMode) {
@@ -341,7 +344,7 @@ export default function ProductModal({ product, onClose }) {
             <div className="flex items-center gap-5">
               <button
                 type="button"
-                onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                onClick={() => setQuantity(Math.max(minQty, Math.round((quantity - qtyStep) * 10) / 10))}
                 className="w-12 h-12 rounded-xl border-2 border-ink-200 flex items-center justify-center
                          hover:border-ink-300 hover:bg-ink-50 transition-all active:scale-95"
                 aria-label="Menos"
@@ -350,10 +353,12 @@ export default function ProductModal({ product, onClose }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" />
                 </svg>
               </button>
-              <span className="text-2xl font-black text-ink-900 w-10 text-center">{quantity}</span>
+              <span className="text-2xl font-black text-ink-900 w-10 text-center">
+                {sellMode === 'weight' ? quantity.toFixed(1) : quantity}
+              </span>
               <button
                 type="button"
-                onClick={() => setQuantity(quantity + 1)}
+                onClick={() => setQuantity(Math.round((quantity + qtyStep) * 10) / 10)}
                 className="w-12 h-12 rounded-xl border-2 border-ink-200 flex items-center justify-center
                          hover:border-ink-300 hover:bg-ink-50 transition-all active:scale-95"
                 aria-label="Más"

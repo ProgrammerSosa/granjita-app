@@ -303,7 +303,7 @@ export default function AdminProductsPage() {
           price: Number(v.price),
           kind: v.kind === 'weight' ? 'weight' : 'unit',
         })),
-        stock: Math.max(0, parseInt(form.stock, 10) || 0),
+        stock: Math.max(0, form.sellByWeight ? (parseFloat(form.stock) || 0) : (parseInt(form.stock, 10) || 0)),
         lowStockThreshold: Math.max(0, parseInt(form.lowStockThreshold, 10) || 5),
         trackStock: form.trackStock !== false,
       };
@@ -701,6 +701,7 @@ export default function AdminProductsPage() {
                   <input
                     type="number"
                     min="0"
+                    step={form.sellByWeight ? '0.5' : '1'}
                     value={form.stock}
                     onChange={(e) => setForm((prev) => ({ ...prev, stock: e.target.value }))}
                     className="input-admin mt-1"

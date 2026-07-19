@@ -7,6 +7,7 @@ const {
   addRest,
   removeRest,
   setMinOrder,
+  setShifts,
   toggleDay,
   getDay,
 } = require('../controllers/storeController');
@@ -26,5 +27,6 @@ router.post('/admin/rest-days', authenticateAdmin, addRest);
 router.post('/admin/day/toggle', authenticateAdmin, toggleDay);
 router.delete('/admin/rest-days/:id', authenticateAdmin, removeRest);
 router.put('/admin/min-order', authenticateAdmin, setMinOrder);
+router.put('/admin/shifts', authenticateAdmin, setShifts);
 
 module.exports = router;

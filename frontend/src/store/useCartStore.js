@@ -8,10 +8,13 @@ const useCartStore = create(
 
       addItem: (product, { variant = null, extras = [], quantity = 1 }) => {
         set((state) => {
+          const unitType = variant?.kind === 'weight' ? 'weight' : 'unit';
+
           const existingIndex = state.items.findIndex(
             (item) =>
               item.product._id === product._id &&
               item.variant?.name === variant?.name &&
+              (item.unitType || 'unit') === unitType &&
               JSON.stringify((item.extras || []).map((e) => e.name).sort()) ===
                 JSON.stringify((extras || []).map((e) => e.name).sort())
           );
@@ -42,6 +45,7 @@ const useCartStore = create(
                 quantity,
                 unitPrice,
                 subtotal: unitPrice * quantity,
+                unitType,
               },
             ],
           };

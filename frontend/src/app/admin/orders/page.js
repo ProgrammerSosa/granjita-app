@@ -453,17 +453,22 @@ export default function AdminOrdersPage() {
                           Productos
                         </h4>
                         <div className="bg-admin-50 rounded-xl p-3.5 text-sm space-y-1.5 border border-admin-100">
-                          {order.items.map((item, i) => (
+                          {order.items.map((item, i) => {
+                            const qtyLabel = item.unitType === 'weight'
+                              ? `${Number(item.quantity).toFixed(1)} lb`
+                              : `${item.quantity}x`;
+                            return (
                             <div key={i} className="flex justify-between">
                               <span className="text-admin-700">
-                                {item.quantity}x {item.productName}
+                                {qtyLabel} {item.productName}
                                 {item.variant?.name ? ` (${item.variant.name})` : ''}
                               </span>
                               <span className="font-semibold text-admin-900">
                                 {formatMoney(item.subtotal)}
                               </span>
                             </div>
-                          ))}
+                            );
+                          })}
                           <div className="border-t border-admin-200 pt-2 mt-2 flex justify-between font-black">
                             <span>Total</span>
                             <span>{formatMoney(order.total)}</span>

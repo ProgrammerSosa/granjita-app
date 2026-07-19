@@ -18,7 +18,7 @@ const orderItemSchema = new mongoose.Schema({
   quantity: {
     type: Number,
     required: true,
-    min: [1, 'La cantidad mínima es 1'],
+    min: [0.5, 'La cantidad mínima es 0.5'],
   },
   unitPrice: {
     type: Number,
@@ -27,6 +27,11 @@ const orderItemSchema = new mongoose.Schema({
   subtotal: {
     type: Number,
     required: true,
+  },
+  unitType: {
+    type: String,
+    enum: ['unit', 'weight'],
+    default: 'unit',
   },
 }, { _id: false });
 

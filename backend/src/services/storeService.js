@@ -275,19 +275,18 @@ function getStoreStatus(date = new Date()) {
   }
 
   if (!isWithinShifts(parts.minutesOfDay, settings)) {
-    const between =
-      parts.minutesOfDay >= parseHm('15:00') && parts.minutesOfDay < parseHm('16:00');
-    const msg = between
-      ? 'Estamos en receso (3:00 pm – 4:00 pm). El segundo turno abre a las 4:00 pm.'
+    const gap = findRecessGap(parts.minutesOfDay, settings);
+    const msg = gap
+      ? `Estamos en receso (${formatHm12(gap.start)} – ${formatHm12(gap.end)}). El segundo turno abre a las ${formatHm12(gap.end)}.`
       : `Ahora estamos fuera de horario. Atendemos ${labelHours} (${labelDays}).`;
     return {
       ...base,
       open: false,
-      reason: between ? 'between_shifts' : 'outside_hours',
+      reason: gap ? 'between_shifts' : 'outside_hours',
       message: msg,
       nextOpenHint: nextHint,
       closedGreeting: friendlyClosedMessage(
-        between ? 'between_shifts' : 'outside_hours',
+        gap ? 'between_shifts' : 'outside_hours',
         msg,
         nextHint
       ),
@@ -493,6 +492,56 @@ function getDayPlan(dateStr) {
   };
 }
 
+/** Si la hora cae en el hueco (receso) entre dos turnos consecutivos, devuelve {start,end} en HH:MM. */
+function findRecessGap(minutesOfDay, settings) {
+  const shifts = [...(settings.shifts || DEFAULT_SHIFTS)]
+    .map((s) => ({ start: s.start, end: s.end, startMin: parseHm(s.start), endMin: parseHm(s.end) }))
+    .sort((a, b) => a.startMin - b.startMin);
+  for (let i = 0; i < shifts.length - 1; i++) {
+    if (minutesOfDay >= shifts[i].endMin && minutesOfDay < shifts[i + 1].startMin) {
+      return { start: shifts[i].end, end: shifts[i + 1].start };
+    }
+  }
+  return null;
+}
+
+/** Valida y normaliza turnos [{start,end}] (formato HH:MM, inicio<fin, sin solaparse, 1 a 4). */
+function validateShifts(shifts) {
+  if (!Array.isArray(shifts) || shifts.length < 1) {
+    throw new Error('Debe haber al menos un turno');
+  }
+  if (shifts.length > 4) {
+    throw new Error('Máximo 4 turnos');
+  }
+  const hmRe = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const clean = shifts.map((s, i) => {
+    const start = String(s?.start || '').trim();
+    const end = String(s?.end || '').trim();
+    if (!hmRe.test(start) || !hmRe.test(end)) {
+      throw new Error(`Turno ${i + 1}: horas inválidas (usá HH:MM, de 00:00 a 23:59)`);
+    }
+    if (parseHm(start) >= parseHm(end)) {
+      throw new Error(`Turno ${i + 1}: la hora de inicio debe ser menor que la de fin`);
+    }
+    return { start, end };
+  });
+  clean.sort((a, b) => parseHm(a.start) - parseHm(b.start));
+  for (let i = 0; i < clean.length - 1; i++) {
+    if (parseHm(clean[i].end) > parseHm(clean[i + 1].start)) {
+      throw new Error('Los turnos no pueden solaparse');
+    }
+  }
+  return clean;
+}
+
+/** Admin: guardar los turnos de atención (turno 1 · receso · turno 2 · …). */
+function updateShifts(shifts) {
+  const clean = validateShifts(shifts);
+  const s = readSettings();
+  s.shifts = clean;
+  return writeSettings(s);
+}
+
 function updateMinOrder(minOrder) {
   const n = Number(minOrder);
   if (!Number.isFinite(n) || n < 0) throw new Error('Pedido mínimo inválido');
@@ -515,6 +564,7 @@ module.exports = {
   removeOpenDay,
   toggleRestDay,
   getDayPlan,
+  updateShifts,
   updateMinOrder,
   hoursLabel,
   TIMEZONE,

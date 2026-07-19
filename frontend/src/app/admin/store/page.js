@@ -6,6 +6,7 @@ import {
   setStoreClosed,
   toggleStoreDay,
   setStoreMinOrder,
+  setStoreShifts,
   fetchAdminStats,
   formatMoney,
 } from '@/lib/api';
@@ -66,6 +67,8 @@ export default function AdminStorePage() {
   const [restReason, setRestReason] = useState('');
   const [closeReason, setCloseReason] = useState('');
   const [minOrderInput, setMinOrderInput] = useState('15');
+  const [shiftsDraft, setShiftsDraft] = useState([]);
+  const [savingShifts, setSavingShifts] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const toast = useToastStore((s) => s.success);
@@ -97,6 +100,7 @@ export default function AdminStorePage() {
       setData(d);
       setMinOrderInput(String(d.minOrder ?? 15));
       setCloseReason(d.forceClosedReason || '');
+      setShiftsDraft(d.shifts || []);
     } catch (err) {
       toastError?.(err.message || 'Error al cargar');
     } finally {
@@ -171,7 +175,7 @@ export default function AdminStorePage() {
       confirmLabel = 'Abrir día';
     } else if (meta.type === 'sunday') {
       title = 'Habilitar domingo';
-      message = `El ${selectedDate} se abrirá con el horario normal (10:30–15:00 y 16:00–20:00).`;
+      message = `El ${selectedDate} se abrirá con el horario normal (${status?.hoursLabel || '10:30–15:00 y 16:00–20:00'}).`;
       confirmLabel = 'Habilitar domingo';
     } else if (meta.type === 'sunday_open') {
       title = 'Cerrar este domingo';
@@ -241,6 +245,65 @@ export default function AdminStorePage() {
       setBusy(false);
     }
   }
+
+  function updateShift(index, field, value) {
+    setShiftsDraft((prev) => {
+      const next = prev.map((s, i) => (i === index ? { ...s, [field]: value } : s));
+      return next;
+    });
+  }
+
+  function addShift() {
+    setShiftsDraft((prev) => [...prev, { start: '08:00', end: '17:00' }]);
+  }
+
+  function removeShift(index) {
+    setShiftsDraft((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function calcRecesses(shifts) {
+    const gaps = [];
+    for (let i = 0; i < shifts.length - 1; i++) {
+      if (shifts[i].end && shifts[i + 1].start) {
+        gaps.push({ start: shifts[i].end, end: shifts[i + 1].start });
+      }
+    }
+    return gaps;
+  }
+
+  function validateShiftsClient(shifts) {
+    for (let i = 0; i < shifts.length; i++) {
+      const s = shifts[i];
+      if (!s.start || !s.end) return 'Todos los turnos deben tener inicio y fin';
+      if (s.start >= s.end) return `Turno ${i + 1}: la inicio debe ser menor que la fin`;
+    }
+    for (let i = 0; i < shifts.length - 1; i++) {
+      if (shifts[i].end > shifts[i + 1].start) {
+        return 'Los turnos no pueden solaparse';
+      }
+    }
+    return null;
+  }
+
+  async function handleSaveShifts() {
+    const err = validateShiftsClient(shiftsDraft);
+    if (err) {
+      toastError(err);
+      return;
+    }
+    setSavingShifts(true);
+    try {
+      const d = await setStoreShifts(shiftsDraft);
+      setData(d);
+      toast('Horarios guardados');
+    } catch (e) {
+      toastError(e.message || 'Error al guardar horarios');
+    } finally {
+      setSavingShifts(false);
+    }
+  }
+
+  const recesses = useMemo(() => calcRecesses(shiftsDraft), [shiftsDraft]);
 
   const selectedMeta = selectedDate ? dayMeta(selectedDate) : null;
 
@@ -647,6 +710,76 @@ export default function AdminStorePage() {
         </div>
       </div>
 
+      {/* Horarios de atención */}
+      <div className="card-admin p-5 space-y-3">
+        <h2 className="font-black text-admin-900">Horarios de atención</h2>
+        <p className="text-sm text-admin-500">
+          Turnos de atención. El receso se calcula automáticamente entre turnos consecutivos.
+        </p>
+
+        {shiftsDraft.map((shift, i) => (
+          <div key={i} className="flex flex-wrap items-end gap-2 border-b border-admin-100 pb-3">
+            <div>
+              <label className="text-xs font-bold text-admin-400 block mb-1">Inicio turno {i + 1}</label>
+              <input
+                type="time"
+                value={shift.start}
+                onChange={(e) => updateShift(i, 'start', e.target.value)}
+                className="input-admin w-36"
+                disabled={savingShifts}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-admin-400 block mb-1">Fin turno {i + 1}</label>
+              <input
+                type="time"
+                value={shift.end}
+                onChange={(e) => updateShift(i, 'end', e.target.value)}
+                className="input-admin w-36"
+                disabled={savingShifts}
+              />
+            </div>
+            {shiftsDraft.length > 1 && (
+              <button
+                type="button"
+                onClick={() => removeShift(i)}
+                disabled={savingShifts}
+                className="btn-danger text-xs py-2 px-3 mb-0.5"
+              >
+                Quitar
+              </button>
+            )}
+          </div>
+        ))}
+
+        {recesses.map((r, i) => (
+          <p key={i} className="text-xs font-semibold text-admin-500">
+            Receso: {r.start} – {r.end}
+          </p>
+        ))}
+
+        <div className="flex flex-wrap gap-2 pt-1">
+          {shiftsDraft.length < 4 && (
+            <button
+              type="button"
+              onClick={addShift}
+              disabled={savingShifts}
+              className="btn-admin text-sm"
+            >
+              + Agregar turno
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleSaveShifts}
+            disabled={savingShifts}
+            className="btn-admin text-sm"
+          >
+            {savingShifts ? 'Guardando…' : 'Guardar horarios'}
+          </button>
+        </div>
+      </div>
+
       <div className="card-admin p-5">
         <h2 className="font-black text-admin-900 mb-1">Zona de entrega</h2>
         <p className="text-sm text-admin-600 mb-3">
@@ -654,7 +787,8 @@ export default function AdminStorePage() {
           residencial en el checkout; si no está en la lista, no puede pedir.
         </p>
         <p className="text-xs text-admin-400">
-          Horario fijo: 10:30 am–3:00 pm y 4:00 pm–8:00 pm · Lun–Sáb · Domingos cerrados
+          {data?.status?.hoursLabel || '10:30 am – 3:00 pm · 4:00 pm – 8:00 pm'} ·{' '}
+          {data?.status?.workDaysLabel || 'Lun–Sáb'} · Domingos cerrados
         </p>
       </div>
     </div>

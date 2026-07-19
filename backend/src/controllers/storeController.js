@@ -7,6 +7,7 @@ const {
   toggleRestDay,
   getDayPlan,
   updateMinOrder,
+  updateShifts,
 } = require('../services/storeService');
 const { getDeliveryZonesPayload } = require('../data/deliveryZones');
 
@@ -130,6 +131,25 @@ exports.setMinOrder = (req, res) => {
     });
   } catch (error) {
     return res.status(400).json({ success: false, message: error.message || 'Error' });
+  }
+};
+
+/** Admin: guardar horarios de atención (turnos) */
+exports.setShifts = (req, res) => {
+  try {
+    const { shifts } = req.body || {};
+    if (!Array.isArray(shifts)) {
+      return res.status(400).json({ success: false, message: 'Enviá un array de turnos' });
+    }
+    const settings = updateShifts(shifts);
+    const status = getStoreStatus();
+    return res.json({
+      success: true,
+      data: { ...settings, status },
+      message: 'Horarios guardados',
+    });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message || 'Error al guardar horarios' });
   }
 };
 

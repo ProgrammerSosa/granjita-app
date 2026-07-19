@@ -198,6 +198,7 @@ async function getStockOverview() {
       lowStockThreshold: threshold,
       available: p.available,
       trackStock: p.trackStock !== false,
+      sellByWeight: Boolean(p.sellByWeight),
       status,
     };
   });
