@@ -30,6 +30,12 @@ const orderItemSchema = new mongoose.Schema({
   },
 }, { _id: false });
 
+/** Un tipo de billete/moneda que el cliente indicó para pagar en efectivo */
+const cashBillSchema = new mongoose.Schema({
+  denomination: { type: Number, required: true },
+  count: { type: Number, required: true, min: 0 },
+}, { _id: false });
+
 const orderSchema = new mongoose.Schema({
   customer: {
     name: {
@@ -84,6 +90,12 @@ const orderSchema = new mongoose.Schema({
   paymentLink: {
     type: String,
     default: '',
+  },
+  /** Con cuánto dijo el cliente que va a pagar (efectivo) para preparar el vuelto */
+  cashIntent: {
+    bills: [cashBillSchema],
+    amountTendered: { type: Number, default: 0 },
+    change: { type: Number, default: 0 },
   },
 }, {
   timestamps: true,

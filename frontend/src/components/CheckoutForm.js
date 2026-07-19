@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import useCartStore from '@/store/useCartStore';
 import { createOrder } from '@/lib/api';
 import { buildWhatsAppUrl } from '@/lib/whatsapp';
 import { BillIcon, CreditCardIcon, CheckCircleIcon } from '@/lib/icons';
+import CheckoutCashBills from '@/components/CheckoutCashBills';
+import { emptyBillsMap, billsTotal, billsToArray } from '@/lib/bills';
 
 export default function CheckoutForm({ onBack, onClose }) {
   const items = useCartStore((s) => s.items);
@@ -20,9 +22,13 @@ export default function CheckoutForm({ onBack, onClose }) {
     notes: '',
   });
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [cashBills, setCashBills] = useState(() => emptyBillsMap());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(null);
+
+  const cashTendered = useMemo(() => billsTotal(cashBills), [cashBills]);
+  const cashChange = Math.round((cashTendered - total) * 100) / 100;
 
   function handleChange(e) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -55,9 +61,18 @@ export default function CheckoutForm({ onBack, onClose }) {
         paymentMethod,
       };
 
+      if (paymentMethod === 'cash') {
+        orderData.cashIntent = {
+          bills: billsToArray(cashBills),
+          amountTendered: cashTendered,
+          change: cashChange,
+        };
+      }
+
       const order = await createOrder(orderData);
       setSuccess(order);
       clearCart();
+      setCashBills(emptyBillsMap());
     } catch (err) {
       setError(err.message || 'Error al crear el pedido. Intentalo de nuevo.');
     } finally {
@@ -259,6 +274,14 @@ export default function CheckoutForm({ onBack, onClose }) {
             <span className="block text-xs text-gray-400 mt-0.5">Proximamente</span>
           </button>
         </div>
+
+        {paymentMethod === 'cash' && (
+          <CheckoutCashBills
+            total={total}
+            bills={cashBills}
+            onChange={setCashBills}
+          />
+        )}
       </div>
 
       <div className="card p-4 space-y-2 text-sm">

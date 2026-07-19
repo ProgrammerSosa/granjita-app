@@ -89,7 +89,7 @@ exports.getAdminStats = async (req, res) => {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { customer, items, paymentMethod } = req.body;
+    const { customer, items, paymentMethod, cashIntent } = req.body;
 
     if (!customer?.name || !customer?.phone || !customer?.address) {
       return res.status(400).json({
@@ -161,6 +161,23 @@ exports.createOrder = async (req, res) => {
     const subtotal = enrichedItems.reduce((sum, i) => sum + i.subtotal, 0);
     const total = subtotal + DELIVERY_FEE;
 
+    // Efectivo: guardamos con cuánto dijo el cliente que va a pagar (para el vuelto).
+    // El monto se recalcula acá desde los billetes; no se confía en el número del cliente.
+    let cashIntentData;
+    if (paymentMethod === 'cash' && cashIntent?.bills?.length) {
+      const cleanBills = (cashIntent.bills || [])
+        .map((b) => ({ denomination: Number(b.denomination), count: Number(b.count) }))
+        .filter((b) => b.denomination > 0 && b.count > 0);
+      if (cleanBills.length) {
+        const amountTendered = cleanBills.reduce((s, b) => s + b.denomination * b.count, 0);
+        cashIntentData = {
+          bills: cleanBills,
+          amountTendered: Math.round(amountTendered * 100) / 100,
+          change: Math.round((amountTendered - total) * 100) / 100,
+        };
+      }
+    }
+
     const orderData = {
       customer: {
         name: customer.name.trim(),
@@ -175,6 +192,7 @@ exports.createOrder = async (req, res) => {
       paymentMethod,
       paymentStatus: 'pending',
       orderStatus: 'pending',
+      ...(cashIntentData ? { cashIntent: cashIntentData } : {}),
     };
 
     const order = await Order.create(orderData);
@@ -209,6 +227,7 @@ exports.createOrder = async (req, res) => {
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
         orderStatus: order.orderStatus,
+        cashIntent: order.cashIntent,
         createdAt: order.createdAt,
       },
     };

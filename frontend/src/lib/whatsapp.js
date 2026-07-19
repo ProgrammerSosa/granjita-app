@@ -4,6 +4,8 @@
 // Número de la tienda que RECIBE los pedidos.
 // Formato internacional SIN "+", espacios ni guiones. Ej. Guatemala: 502########
 // Se configura con la variable NEXT_PUBLIC_WHATSAPP_NUMBER en Render (frontend).
+import { formatBillsSummary } from './bills';
+
 export function getStoreWhatsAppNumber() {
   return (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '').replace(/[^0-9]/g, '');
 }
@@ -22,6 +24,18 @@ export function buildOrderWhatsAppText(order) {
   const pago = order.paymentMethod === 'cash' ? 'Efectivo (contra entrega)' : 'Tarjeta';
   const notas = order.customer.notes ? `*Notas:* ${order.customer.notes}\n` : '';
 
+  // Si el cliente eligió con qué billetes paga, se lo pasamos a la tienda para el vuelto.
+  let efectivo = '';
+  const intent = order.cashIntent;
+  if (order.paymentMethod === 'cash' && intent?.amountTendered) {
+    const change = Number(intent.change) || 0;
+    efectivo =
+      `\n*Paga con:* ${formatBillsSummary(intent.bills)} (Q${Number(intent.amountTendered).toLocaleString('es-GT')})\n` +
+      (change > 0
+        ? `*Vuelto:* Q${change.toLocaleString('es-GT')}`
+        : `*Pago cabal — sin vuelto*`);
+  }
+
   return (
     `*GRANJITA — Pedido #${pedidoId}*\n\n` +
     `*Cliente:* ${order.customer.name}\n` +
@@ -30,7 +44,8 @@ export function buildOrderWhatsAppText(order) {
     notas +
     `\n*Productos:*\n${productos}\n\n` +
     `*TOTAL: Q${order.total.toLocaleString('es-GT')}*\n` +
-    `*Pago:* ${pago}`
+    `*Pago:* ${pago}` +
+    efectivo
   );
 }
 
