@@ -1,0 +1,17 @@
+*La Granjita – accesos*
+
+🛒 Tienda:
+https://granjita-frontend.onrender.com
+
+🔐 Admin:
+https://granjita-frontend.onrender.com/admin/login
+Contraseña: emadiana123
+
+1) Abra el enlace del Admin
+2) Ingrese la contraseña
+3) Gestione pedidos, productos y stock
+
+Backend (técnico):
+https://granjita-app.onrender.com/api/health
+
+Nota: la primera carga puede tardar un poco (servidor free).

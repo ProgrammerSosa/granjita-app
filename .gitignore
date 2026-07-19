@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+build/
+
+backend/.env
+frontend/.env*
+# La URL del API es pública (va dentro del bundle del cliente), así que sí se versiona:
+!frontend/.env.production
+
+backend/uploads/
+backend/.wwebjs_auth/
+backend/.wwebjs_cache/
+backend/.puppeteer/
+
+*.log
