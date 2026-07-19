@@ -1,0 +1,63 @@
+# Blueprint Render — La Granjita
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Uso:
+# 1. MongoDB Atlas (gratis) → copiá connection string
+# 2. Render → New → Blueprint → este repo
+# 3. Completá las envVars "sync: false" en el dashboard
+# 4. Tras el primer deploy del frontend, poné CORS_ORIGIN y STORE_URL
+#    con la URL del frontend y redeploy del backend
+
+services:
+  # ── API Express ──────────────────────────────────────────
+  - type: web
+    name: granjita-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WHATSAPP_ENABLED
+        value: "false"
+      - key: WHATSAPP_AUTO_REPLY
+        value: "true"
+      - key: WHATSAPP_FIRST_MSG_OF_DAY
+        value: "true"
+      - key: WA_PUBLIC_PANEL
+        value: "false"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: OWNER_WHATSAPP
+        sync: false
+      - key: STORE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+
+  # ── Next.js tienda + admin ───────────────────────────────
+  - type: web
+    name: granjita-frontend
+    runtime: node
+    rootDir: frontend
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_WHATSAPP
+        sync: false
