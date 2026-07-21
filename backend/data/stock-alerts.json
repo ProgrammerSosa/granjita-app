@@ -1,0 +1,23 @@
+{
+  "last": {
+    "6a53094caa25f39b38774d37": {
+      "level": "low",
+      "stock": 5,
+      "at": "2026-07-21T01:32:41.946Z"
+    }
+  },
+  "events": [
+    {
+      "id": "1784597561946-v3ziu",
+      "read": false,
+      "at": "2026-07-21T01:32:41.946Z",
+      "type": "stock",
+      "level": "low",
+      "productId": "6a53094caa25f39b38774d37",
+      "productName": "agua",
+      "stock": 5,
+      "threshold": 5,
+      "message": "Stock bajo: agua — quedan 5 (umbral 5)."
+    }
+  ]
+}

@@ -205,7 +205,7 @@ function listRowsMain() {
     {
       id: '3',
       title: '✏️ Modificar un pedido',
-      description: 'Antes de que salga el reparto',
+      description: 'Antes de que pase a En proceso',
     },
   ];
 }
@@ -220,7 +220,7 @@ function listRowsAfter() {
     {
       id: '2',
       title: '✏️ Modificar este pedido',
-      description: 'Solo si aún no salió a reparto',
+      description: 'Antes de que pase a En proceso',
     },
     {
       id: '3',
@@ -270,7 +270,7 @@ function menuMain() {
     `💬  *2*  ·  Atención al cliente\n` +
     `      _Escribinos, con gusto te ayudamos_\n\n` +
     `✏️  *3*  ·  Modificar un pedido\n` +
-    `      _Solo si aún no salió a reparto_\n\n` +
+    `      _Antes de que pase a "En proceso"_\n\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `Respondé con *1*, *2* o *3*\n` +
     `(o tocá *✨ Ver menú* si te aparece el listado)\n\n` +
@@ -295,7 +295,7 @@ function menuAfterOrder(orderCode) {
     `🛒  *1*  ·  Hacer *otro* pedido\n` +
     `      _¡Nos encanta cuando volvés!_\n\n` +
     `✏️  *2*  ·  *Modificar* este pedido\n` +
-    `      _Solo si todavía no salió a reparto_\n\n` +
+    `      _Antes de que pase a "En proceso"_\n\n` +
     `💬  *3*  ·  Atención al cliente\n` +
     `      _Estamos aquí si necesitás algo_\n\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -388,7 +388,7 @@ function msgPedirModificacion() {
   return (
     `✏️ *Modificar tu pedido* 🧡\n\n` +
     `Con mucho gusto te ayudamos a ajustar lo que haga falta.\n\n` +
-    `⚠️ Solo se puede *antes de que el pedido salga a reparto*.\n\n` +
+    `⚠️ Solo se puede *antes de que el pedido pase a "En proceso"*.\n\n` +
     `Escribí tu cambio en *un solo mensaje*, por ejemplo:\n\n` +
     `• _"Quiero 2 pollos en vez de 1"_\n` +
     `• _"Cambiá la dirección a..."_\n` +
@@ -667,7 +667,7 @@ async function handleIncomingMessage(msg) {
         `🆔 Pedido: #${code}\n` +
         (orderRef ? `🔗 ID: ${orderRef}\n` : '') +
         `\n📝 *Cambio pedido:*\n${body}\n\n` +
-        `_Revisá en admin si aún no está "En camino"_`
+        `_Editá el pedido en Admin → Pedidos → "Modificar pedido" (solo si aún no está "En proceso")_`
     );
 
     await safeReply(
@@ -675,7 +675,7 @@ async function handleIncomingMessage(msg) {
       `✅ *Recibimos tu solicitud de cambio*\n\n` +
         `Pedido: *#${code}*\n` +
         `Tu mensaje:\n_"${body.substring(0, 300)}"_\n\n` +
-        `El equipo lo revisa *antes de que el pedido salga a reparto*.`
+        `El equipo lo revisa *antes de que el pedido pase a "En proceso"*.`
     );
     setSession(phone, { state: STATE.AFTER_ORDER, lastMenu: 'after' });
     await replyWithSwitchMenu(msg, 'after', code === '—' ? null : code);
@@ -1453,62 +1453,230 @@ function formatCustomerConfirmation(order) {
   );
 }
 
-function formatStatusUpdate(order) {
-  const statusInfo = {
-    pending: { emoji: '⏳', text: 'Pendiente', desc: 'Tu pedido está en cola, lo procesaremos pronto.' },
-    confirmed: { emoji: '✅', text: 'Confirmado', desc: 'Tu pedido fue confirmado. ¡Preparándolo!' },
-    preparing: { emoji: '👨‍🍳', text: 'En preparación', desc: 'Tu pedido se está preparando con cariño.' },
-    in_transit: {
-      emoji: '🛵',
-      text: 'En camino',
-      desc: '¡Tu pedido va en camino! Llevamos la factura. Estate atento/a a la puerta.',
-    },
-    delivered: { emoji: '🎉', text: 'Entregado', desc: 'Tu pedido fue entregado. ¡Esperamos que lo disfrutes!' },
-    cancelled: { emoji: '❌', text: 'Cancelado', desc: 'Lamentablemente tu pedido fue cancelado. Si tenés dudas, escribinos.' },
-  };
+/** Q con 2 decimales, ej: Q 6.00 */
+function money2(n) {
+  return `Q ${Number(n || 0).toLocaleString('es-GT', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
-  const info = statusInfo[order.orderStatus] || { emoji: '📋', text: order.orderStatus, desc: '' };
-  const paymentText =
-    order.paymentMethod === 'cash' ? '💵 Efectivo al entregar' : '💳 Terminal POS en casa';
+/** Fecha civil de Guatemala DD/MM/YYYY, HH:mm */
+function gtDateTime(d) {
+  try {
+    return new Intl.DateTimeFormat('es-GT', {
+      timeZone: 'America/Guatemala',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(d || Date.now()));
+  } catch {
+    return new Date(d || Date.now()).toLocaleString('es-GT');
+  }
+}
 
-  // Cliente: al ir en camino, factura + recordatorio de con qué billetes paga
-  if (order.orderStatus === 'in_transit') {
-    let cashClient = '';
-    if (order.paymentMethod === 'cash' && order.cashIntent?.amountTendered) {
+/** Etiqueta de cantidad: peso → "0.5 lb", unidad → "1x" */
+function qtyLabel(item) {
+  if (item?.unitType === 'weight') {
+    return `${Number(item.quantity).toLocaleString('es-GT')} lb`;
+  }
+  return `${item.quantity}x`;
+}
+
+/**
+ * Factura en TEXTO para el WhatsApp del cliente (formato La Granjita).
+ * Se envía cuando el pedido pasa a "En proceso".
+ */
+function formatInvoiceText(order) {
+  const code = order._id.toString().slice(-6).toUpperCase();
+  const inv = order.invoice?.number || `PED-${code}`;
+  const fecha = gtDateTime(order.invoice?.issuedAt || order.createdAt);
+  const zona = (order.customer?.zone || order.customer?.municipality || '').trim();
+  const dir =
+    (order.customer?.address || '').trim() + (zona ? ` (${zona})` : '');
+
+  const detalle = (order.items || [])
+    .map((item) => {
+      const name =
+        `${item.productName}` +
+        (item.variant?.name ? ` (${item.variant.name})` : '') +
+        (item.extras?.length ? ` + ${item.extras.map((e) => e.name).join(', ')}` : '');
+      return `• ${qtyLabel(item)} ${name} ····· ${money2(item.subtotal)}`;
+    })
+    .join('\n');
+
+  let pagoBlock;
+  if (order.paymentMethod === 'cash') {
+    let cash = '';
+    if (order.cashIntent?.amountTendered) {
       const ch = Number(order.cashIntent.change) || 0;
-      cashClient =
-        `\n💵 *Vas a pagar con:* ${formatCashBills(order.cashIntent)}\n` +
-        `• Total: Q${order.total.toLocaleString('es-GT')}\n` +
-        (ch > 0
-          ? `• Tu vuelto: *Q${ch.toLocaleString('es-GT')}*\n`
-          : `• Pago cabal (sin vuelto)\n`);
+      cash =
+        `\nPaga con: ${formatCashBills(order.cashIntent)}  ·  entregás ${money2(order.cashIntent.amountTendered)}\n` +
+        (ch > 0 ? `Vuelto: ${money2(ch)}` : `Pago cabal — sin vuelto`);
     }
-    return (
-      `🛵 *Tu pedido va en camino*\n\n` +
-      `Hola *${order.customer.name}*,\n` +
-      `Pedido *#${order._id.toString().slice(-6).toUpperCase()}*\n` +
-      (order.invoice?.number ? `🧾 Factura: *${order.invoice.number}*\n` : '') +
-      `\n💵 *TOTAL: Q${order.total.toLocaleString('es-GT')}*\n` +
-      `💳 Pago: ${paymentText}\n` +
-      cashClient +
-      `\n¡Estate atento/a a la puerta! 🧡`
-    );
+    pagoBlock = `💵 *Pago:* Efectivo al entregar${cash}`;
+  } else {
+    pagoBlock =
+      `💳 *Pago:* Tarjeta con terminal en tu casa\n` +
+      `A cobrar: ${money2(order.total)}`;
   }
 
   return (
-    `╔══════════════════════════════╗\n` +
-    `║  ${info.emoji} *ACTUALIZACIÓN DE PEDIDO*  ║\n` +
-    `║           *TIENDA*            ║\n` +
-    `╚══════════════════════════════╝\n\n` +
-    `Hola *${order.customer.name}*, tu pedido #${order._id.toString().slice(-6).toUpperCase()} fue actualizado:\n\n` +
-    `${info.emoji} *Estado:* ${info.text}\n` +
-    `${info.desc}\n\n` +
-    (order.invoice?.number ? `🧾 *Factura:* ${order.invoice.number}\n` : '') +
-    `💵 *TOTAL:* Q${order.total.toLocaleString('es-GT')}\n` +
-    `💳 *Pago:* ${paymentText}\n\n` +
-    `Si tenés alguna consulta, escribinos por este mismo chat.\n` +
-    `¡Gracias por preferirnos! 🧡`
+    `🧾 *LA GRANJITA · FACTURA*\n` +
+    `Factura: ${inv}\n` +
+    `Pedido: #${code}\n` +
+    `Fecha: ${fecha}\n\n` +
+    `👤 *Cliente*\n` +
+    `${order.customer?.name || '—'}\n` +
+    `📞 ${order.customer?.phone || '—'}\n` +
+    `📍 ${dir || '—'}\n` +
+    (order.customer?.notes ? `📝 ${order.customer.notes}\n` : '') +
+    `\n🛒 *Detalle*\n${detalle}\n\n` +
+    `Subtotal: ${money2(order.subtotal)}\n` +
+    `Envío: ${order.deliveryFee > 0 ? money2(order.deliveryFee) : 'Gratis'}\n` +
+    `*TOTAL: ${money2(order.total)}*\n\n` +
+    `${pagoBlock}\n\n` +
+    `_Gracias por preferirnos 🐔_`
   );
+}
+
+/**
+ * Mensaje corto al crear el pedido (estado "Nuevo").
+ * Todavía NO se manda la factura (va en "En proceso").
+ */
+function formatNewOrderCustomer(order) {
+  const code = order._id.toString().slice(-6).toUpperCase();
+  return (
+    `🧡 *¡Recibimos tu pedido!*\n` +
+    `🐔 La Granjita · TIENDA\n\n` +
+    `Hola *${order.customer?.name || ''}*,\n` +
+    `Tu pedido *#${code}* ya entró a la cola.\n\n` +
+    `👀 En un momentito un *proveedor* lo va a revisar.\n` +
+    `Cuando lo confirme, te avisamos por este mismo chat con todos los detalles y tu factura.\n\n` +
+    `💵 Total estimado: *${money2(order.total)}*\n\n` +
+    `¡Gracias por preferirnos! 💛`
+  );
+}
+
+/**
+ * Mensaje cuando el admin MODIFICA el pedido (agregó/quitó productos).
+ */
+function formatOrderUpdatedCustomer(order) {
+  const code = order._id.toString().slice(-6).toUpperCase();
+  const detalle = (order.items || [])
+    .map((item) => {
+      const name =
+        `${item.productName}` +
+        (item.variant?.name ? ` (${item.variant.name})` : '');
+      return `• ${qtyLabel(item)} ${name} ····· ${money2(item.subtotal)}`;
+    })
+    .join('\n');
+  return (
+    `✏️ *Tu pedido fue actualizado*\n` +
+    `🐔 La Granjita\n\n` +
+    `Pedido *#${code}*\n\n` +
+    `🛒 *Nuevo detalle:*\n${detalle}\n\n` +
+    `*NUEVO TOTAL: ${money2(order.total)}*\n\n` +
+    `Si algo no cuadra, escribinos por este chat 💛`
+  );
+}
+
+/**
+ * Mensaje al cliente según el nuevo estado (flujo La Granjita):
+ * Nuevo → Confirmado → En proceso → En camino → Entregado
+ */
+/** Invitación a pedir de nuevo (se manda cuando el pedido queda Entregado) */
+function formatDeliveredInvite() {
+  return (
+    `🛍️ *¿Se te antoja algo más?*\n\n` +
+    `Cuando quieras hacer *otro pedido*, entrá a nuestra tienda:\n` +
+    `👉 ${STORE_URL}\n\n` +
+    `Es rapidísimo y te lo llevamos a la puerta 🛵\n` +
+    `¡Te esperamos! 🐔🧡`
+  );
+}
+
+function formatStatusUpdate(order) {
+  const code = order._id.toString().slice(-6).toUpperCase();
+  const name = order.customer?.name || '';
+  const paymentText =
+    order.paymentMethod === 'cash' ? '💵 Efectivo al entregar' : '💳 Terminal en tu casa';
+
+  switch (order.orderStatus) {
+    case 'confirmed':
+      return (
+        `✅ *¡Tu pedido fue confirmado!*\n` +
+        `🐔 La Granjita\n\n` +
+        `Hola *${name}*, un *proveedor* está revisando tu pedido *#${code}* 👀\n` +
+        `Está confirmando que tengamos *todo lo que pediste*.\n\n` +
+        `Si llegara a faltar algo, te avisamos por acá y lo *cambiamos por lo que vos quieras* 💛\n\n` +
+        `Y si vos querés ajustar algo:\n` +
+        `• *Agregar* más productos\n` +
+        `• *Quitar* o *cambiar* algo de la lista\n\n` +
+        `Escribinos por este mismo chat *antes de que pase a "En proceso"* ⏳\n` +
+        `Cuando lo pasemos a *En proceso*, te llega tu *factura* 🧾`
+      );
+
+    case 'preparing':
+      return (
+        `👨‍🍳 *¡Manos a la obra!*\n` +
+        `🐔 La Granjita\n\n` +
+        `Hola *${name}*, tu pedido *#${code}* quedó *confirmado* y ya lo estamos preparando.\n\n` +
+        `Aquí abajo te dejamos tu *factura* 🧾👇`
+      );
+
+    case 'in_transit': {
+      let cashClient = '';
+      if (order.paymentMethod === 'cash' && order.cashIntent?.amountTendered) {
+        const ch = Number(order.cashIntent.change) || 0;
+        cashClient =
+          `\n💵 *Vas a pagar con:* ${formatCashBills(order.cashIntent)}\n` +
+          `• Total: ${money2(order.total)}\n` +
+          (ch > 0
+            ? `• Tu vuelto: *${money2(ch)}*\n`
+            : `• Pago cabal (sin vuelto)\n`);
+      }
+      return (
+        `🛵 *¡Tu pedido salió a ruta!*\n` +
+        `🐔 La Granjita\n\n` +
+        `Hola *${name}*,\n` +
+        `Tu pedido *#${code}* ya va *en camino* a tu puerta 🎉\n` +
+        (order.invoice?.number ? `🧾 Factura: *${order.invoice.number}*\n` : '') +
+        `\n💵 *TOTAL: ${money2(order.total)}*\n` +
+        `💳 Pago: ${paymentText}\n` +
+        cashClient +
+        `\n¡Estate atento/a a la puerta! 🧡`
+      );
+    }
+
+    case 'delivered':
+      return (
+        `🎉 *¡Pedido entregado!*\n` +
+        `🐔 La Granjita\n\n` +
+        `Hola *${name}*, tu pedido *#${code}* fue *entregado* con éxito ✅\n\n` +
+        `Gracias de corazón por confiar en nosotros 💛\n` +
+        `*¡Que tengas un feliz día!* ☀️🐔\n\n` +
+        `Cuando quieras volver a pedir, acá estamos para vos.`
+      );
+
+    case 'cancelled':
+      return (
+        `❌ *Pedido cancelado*\n` +
+        `🐔 La Granjita\n\n` +
+        `Hola *${name}*, tu pedido *#${code}* fue cancelado.\n` +
+        `Si fue un error o tenés dudas, escribinos por este chat y lo resolvemos 💛`
+      );
+
+    default: // pending / desconocido
+      return (
+        `🧡 *Tu pedido #${code}*\n` +
+        `Hola *${name}*, tu pedido está *en cola* y pronto un proveedor lo revisará.\n` +
+        `Te avisamos por este chat en cada paso. ¡Gracias! 🐔`
+      );
+  }
 }
 
 function getStatusText(status) {
@@ -1685,6 +1853,23 @@ async function sendOrderStatusUpdate(order) {
     await sendWaMessage(phone, message);
     console.log(`✅ Notificación de estado enviada al cliente ${phone} para pedido #${order._id.toString().slice(-6).toUpperCase()} → ${order.orderStatus}`);
 
+    // En proceso: además de "confirmado", mandar la FACTURA en texto al cliente
+    if (order.orderStatus === 'preparing') {
+      await sendWaMessage(phone, formatInvoiceText(order));
+      console.log(`✅ Factura (texto) enviada al cliente ${phone}`);
+    }
+
+    // Entregado: invitar a pedir de nuevo con el link + dejar el menú post-pedido
+    if (order.orderStatus === 'delivered') {
+      await sendWaMessage(phone, formatDeliveredInvite());
+      console.log(`✅ Invitación a nuevo pedido enviada al cliente ${phone}`);
+      try {
+        await sendAfterOrderMenu(order);
+      } catch (e) {
+        console.warn('[WhatsApp] menú post-entrega:', e.message);
+      }
+    }
+
     // Al salir en camino: factura completa al dueño/repartidor (billetes + vuelto a llevar)
     if (order.orderStatus === 'in_transit') {
       await notifyOwner(formatInvoiceForDelivery(order));
@@ -1693,6 +1878,92 @@ async function sendOrderStatusUpdate(order) {
   } catch (error) {
     console.error(`Error enviando notificación de estado al cliente:`, error.message);
   }
+}
+
+/**
+ * Al CREAR el pedido (estado Nuevo): mensaje corto al cliente + menú post-pedido.
+ * NO manda factura todavía (va en "En proceso").
+ */
+async function sendCustomerNewOrder(order) {
+  if (!client || !isReady) {
+    throw new Error('WhatsApp no está CONECTADO — no se avisó al cliente');
+  }
+  const phone = normalizePhone(order.customer?.phone);
+  if (!phone) throw new Error('El pedido no tiene teléfono del cliente');
+  if (phone.length < 10) {
+    throw new Error(`Teléfono del cliente inválido (${phone}).`);
+  }
+
+  await sendWaMessage(phone, formatNewOrderCustomer(order));
+  console.log(`✅ Aviso "pedido recibido" enviado al cliente ${phone}`);
+
+  try {
+    await sendAfterOrderMenu(order);
+  } catch (e) {
+    console.warn('[WhatsApp] menú post-pedido:', e.message);
+  }
+}
+
+/** Cuando el admin edita los productos del pedido → avisar al cliente el nuevo total */
+async function sendOrderUpdatedToCustomer(order) {
+  if (!client || !isReady) return;
+  const phone = normalizePhone(order.customer?.phone);
+  if (!phone || phone.length < 10) return;
+  try {
+    await sendWaMessage(phone, formatOrderUpdatedCustomer(order));
+    console.log(`✅ Aviso de pedido modificado enviado al cliente ${phone}`);
+  } catch (e) {
+    console.warn('[WhatsApp] aviso modificación:', e.message);
+  }
+}
+
+/** Mensaje "falta algo del pedido" que el proveedor manda antes de la factura */
+function formatMissingItems(order, { items = [], note = '' } = {}) {
+  const code = order._id.toString().slice(-6).toUpperCase();
+  const name = order.customer?.name || '';
+  const list = (items || [])
+    .filter(Boolean)
+    .map((t) => `• ${t}`)
+    .join('\n');
+  return (
+    `⚠️ *Sobre tu pedido #${code}*\n` +
+    `🐔 La Granjita\n\n` +
+    `Hola *${name}*, revisando tu pedido nos dimos cuenta de que por ahora ` +
+    `*no tenemos disponible*:\n` +
+    (list ? `${list}\n` : '') +
+    (note ? `\n📝 ${note}\n` : '') +
+    `\n¿Querés que lo *quitemos* o lo *cambiemos por otra cosa*?\n` +
+    `Respondé por este mismo chat y lo ajustamos enseguida 💛`
+  );
+}
+
+/**
+ * El proveedor avisa al cliente que falta algo del pedido (antes de la factura).
+ * Deja la sesión esperando la respuesta del cliente (que le llega al dueño).
+ */
+async function sendMissingItemsToCustomer(order, payload = {}) {
+  if (!client || !isReady) {
+    throw new Error('WhatsApp no está CONECTADO — no se avisó al cliente');
+  }
+  const phone = normalizePhone(order.customer?.phone);
+  if (!phone || phone.length < 10) {
+    throw new Error('Teléfono del cliente inválido');
+  }
+  const code = order._id.toString().slice(-6).toUpperCase();
+  await sendWaMessage(phone, formatMissingItems(order, payload));
+  // Dejar la sesión esperando el cambio: la respuesta del cliente le llega al dueño
+  try {
+    setSession(phone, {
+      greetedDay: todayKey(),
+      state: STATE.AWAIT_MOD,
+      lastMenu: 'after',
+      lastOrderId: String(order._id),
+      lastOrderCode: code,
+    });
+  } catch {
+    /* ignore */
+  }
+  console.log(`✅ Aviso "falta algo" enviado al cliente ${phone}`);
 }
 
 async function startWhatsApp() {
@@ -1736,6 +2007,9 @@ module.exports = {
   initWhatsApp,
   sendOrderNotification,
   sendCustomerConfirmation,
+  sendCustomerNewOrder,
+  sendOrderUpdatedToCustomer,
+  sendMissingItemsToCustomer,
   sendOrderStatusUpdate,
   sendAfterOrderMenu,
   sendTestMessage,

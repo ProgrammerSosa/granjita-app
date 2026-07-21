@@ -9,6 +9,8 @@ const {
   resendWhatsApp,
   listInvoices,
   downloadInvoicePdf,
+  updateOrderItems,
+  notifyMissing,
 } = require('../controllers/orderController');
 const { authenticateAdmin } = require('../middleware/auth');
 const { rateLimit } = require('../middleware/security');
@@ -20,6 +22,8 @@ router.get('/admin/stats', authenticateAdmin, getAdminStats);
 router.get('/admin/invoices', authenticateAdmin, listInvoices);
 router.get('/admin', authenticateAdmin, getAllOrders);
 router.patch('/:id/status', authenticateAdmin, updateOrderStatus);
+router.patch('/:id/items', authenticateAdmin, updateOrderItems);
+router.post('/:id/notify-missing', authenticateAdmin, notifyMissing);
 router.post('/:id/cash-payment', authenticateAdmin, recordCashPayment);
 router.post('/:id/resend-whatsapp', authenticateAdmin, resendWhatsApp);
 router.get('/:id/invoice.pdf', authenticateAdmin, downloadInvoicePdf);

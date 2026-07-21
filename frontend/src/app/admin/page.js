@@ -11,6 +11,7 @@ import {
 } from '@/lib/api';
 import { gtTodayStr, formatGtTime, formatMoneyQ } from '@/lib/dates';
 import useToastStore from '@/store/useToastStore';
+import { OrderActions, EDITABLE_STATUSES } from '@/components/OrderEditTools';
 
 /** Flujo operativo del negocio (orden mental del admin) */
 const FLOW = [
@@ -254,6 +255,17 @@ export default function AdminHomePage() {
             </div>
           ))}
         </div>
+        <div className="mt-3 grid gap-1.5 text-[11px] text-admin-500 leading-relaxed sm:grid-cols-2">
+          <p><strong className="text-admin-800">🆕 Nuevo:</strong> entró el pedido, se le avisó al cliente.</p>
+          <p><strong className="text-admin-800">✅ Confirmado:</strong> el proveedor revisa el stock (acá modificás o avisás si falta algo).</p>
+          <p><strong className="text-admin-800">👨‍🍳 En proceso:</strong> se manda la factura; el pedido queda cerrado.</p>
+          <p><strong className="text-admin-800">🛵 Listo / En camino:</strong> salió a ruta, se le avisó al cliente.</p>
+          <p><strong className="text-admin-800">🎉 Entregado:</strong> llegó; saludo + invitación a pedir de nuevo.</p>
+        </div>
+        <p className="mt-2 text-[11px] text-primary-700 bg-primary-50 border border-primary-100 rounded-lg px-2.5 py-2">
+          ✏️ Para <strong>modificar</strong> un pedido, usá el recuadro naranja en cada pedido de la
+          cola (solo en <strong>Nuevo</strong> y <strong>Confirmado</strong>).
+        </p>
       </div>
 
       {/* 4. COLA PRINCIPAL — lo más importante */}
@@ -369,6 +381,13 @@ export default function AdminHomePage() {
                         </span>
                       )}
                     </div>
+
+                    {/* Modificar / avisar falta / seguir proceso (antes de "En proceso") */}
+                    {EDITABLE_STATUSES.includes(order.orderStatus) && (
+                      <div className="mt-4">
+                        <OrderActions order={order} onChanged={load} />
+                      </div>
+                    )}
 
                     {/* Acciones de estado */}
                     <div className="mt-4 pt-3 border-t border-admin-100">

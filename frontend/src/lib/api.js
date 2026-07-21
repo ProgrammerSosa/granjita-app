@@ -233,6 +233,22 @@ export async function updateOrderStatus(id, statusData) {
   return data.data;
 }
 
+export async function updateOrderItems(id, items) {
+  const data = await adminRequest(`/orders/${id}/items`, {
+    method: 'PATCH',
+    body: JSON.stringify({ items }),
+  });
+  return data.data;
+}
+
+export async function notifyOrderMissing(id, payload) {
+  const data = await adminRequest(`/orders/${id}/notify-missing`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return data;
+}
+
 export async function recordCashPayment(id, payload = { useClientIntent: true }) {
   const data = await adminRequest(`/orders/${id}/cash-payment`, {
     method: 'POST',
@@ -261,7 +277,7 @@ export function getInvoicePdfUrl(orderId) {
 }
 
 export async function resendOrderWhatsApp(orderId) {
-  const data = await request(`/orders/${orderId}/resend-whatsapp`, {
+  const data = await adminRequest(`/orders/${orderId}/resend-whatsapp`, {
     method: 'POST',
   });
   return data;

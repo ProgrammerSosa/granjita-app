@@ -11,14 +11,34 @@ import {
 } from '@/lib/api';
 import useToastStore from '@/store/useToastStore';
 import { formatBillsSummary } from '@/lib/bills';
+import { OrderActions } from '@/components/OrderEditTools';
 
 const STATUS_OPTIONS = [
-  { value: 'pending', label: 'Pendiente', color: 'badge-yellow' },
+  { value: 'pending', label: 'Nuevo', color: 'badge-yellow' },
   { value: 'confirmed', label: 'Confirmado', color: 'badge-blue' },
-  { value: 'preparing', label: 'Preparando', color: 'badge-blue' },
+  { value: 'preparing', label: 'En proceso', color: 'badge-blue' },
   { value: 'in_transit', label: 'En camino', color: 'badge-blue' },
   { value: 'delivered', label: 'Entregado', color: 'badge-green' },
   { value: 'cancelled', label: 'Cancelado', color: 'badge-red' },
+];
+
+/** Fecha de hoy en horario de Guatemala (YYYY-MM-DD) — no UTC */
+function gtToday() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Guatemala',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+/** Resumen corto del flujo de trabajo (se muestra arriba en Pedidos) */
+const FLOW_SUMMARY = [
+  { icon: '🆕', name: 'Nuevo', desc: 'Entra el pedido. Se le avisa al cliente que un proveedor lo revisará.' },
+  { icon: '✅', name: 'Confirmado', desc: 'El proveedor revisa el stock. Acá modificás o avisás si falta algo.' },
+  { icon: '👨‍🍳', name: 'En proceso', desc: 'Se manda la factura al cliente. El pedido queda cerrado (no se edita).' },
+  { icon: '🛵', name: 'En camino', desc: 'El pedido salió a ruta. Se le avisa al cliente.' },
+  { icon: '🎉', name: 'Entregado', desc: '¡Llegó! Se manda un saludo y la invitación a pedir de nuevo.' },
 ];
 
 const PAYMENT_LABELS = {
@@ -133,7 +153,7 @@ export default function AdminOrdersPage() {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(gtToday());
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [updatingId, setUpdatingId] = useState(null);
   const [savingCash, setSavingCash] = useState(false);
@@ -234,7 +254,7 @@ export default function AdminOrdersPage() {
           <p className="section-label text-admin-400">Operaciones</p>
           <h1 className="text-2xl font-black text-admin-900">Pedidos</h1>
           <p className="text-admin-500 text-sm mt-0.5">
-            {orders.length} pedidos · factura PDF al confirmar · dinero lo define el cliente
+            {orders.length} pedidos · factura al pasar a "En proceso" · el cliente define el pago
           </p>
         </div>
         <input
@@ -259,6 +279,36 @@ export default function AdminOrdersPage() {
           <p className="text-xl font-black text-admin-900">{orders.length}</p>
         </div>
       </div>
+
+      <details className="card-admin p-4 group" open>
+        <summary className="flex items-center gap-2 cursor-pointer list-none font-black text-admin-900 text-sm select-none">
+          <span className="text-lg">🔄</span>
+          ¿Cómo funciona el flujo?
+          <span className="ml-auto text-xs font-semibold text-admin-400 group-open:hidden">
+            ver
+          </span>
+        </summary>
+        <ol className="mt-3 space-y-2">
+          {FLOW_SUMMARY.map((f, i) => (
+            <li key={f.name} className="flex items-start gap-3 text-sm">
+              <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-lg bg-admin-100 text-xs font-black text-admin-700">
+                {i + 1}
+              </span>
+              <p className="text-admin-600 leading-relaxed">
+                <span className="font-black text-admin-900">
+                  {f.icon} {f.name}
+                </span>{' '}
+                — {f.desc}
+              </p>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 text-xs text-primary-700 bg-primary-50 border border-primary-100 rounded-xl p-2.5 leading-relaxed">
+          ✏️ <strong>Para modificar el pedido:</strong> tocá el pedido para abrirlo y usá el botón{' '}
+          <strong>“Modificar pedido”</strong> del recuadro naranja. Solo se puede en{' '}
+          <strong>Nuevo</strong> y <strong>Confirmado</strong> (antes de “En proceso”).
+        </p>
+      </details>
 
       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
         <button
@@ -476,6 +526,8 @@ export default function AdminOrdersPage() {
                         </div>
                       </div>
                     </div>
+
+                    <OrderActions order={order} onChanged={loadOrders} />
 
                     <div>
                       <h4 className="text-xs font-bold text-admin-500 uppercase tracking-wider mb-2">

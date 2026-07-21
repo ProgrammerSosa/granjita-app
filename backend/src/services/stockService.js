@@ -180,6 +180,39 @@ async function consumeStockForOrder(items, { sendWhatsApp } = {}) {
   return { products: results, alerts };
 }
 
+/**
+ * Devuelve stock al inventario (cancelación de pedido o quitar/reducir ítems al editar).
+ * items: [{ productId|product, quantity }]. Suma las cantidades por producto.
+ * Reactiva "available" si el producto vuelve a tener stock.
+ */
+async function restoreStockForItems(items, { sendWhatsApp } = {}) {
+  const byId = {};
+  for (const it of items || []) {
+    const id = String(it.productId || it.product || '');
+    if (!id) continue;
+    const q = Math.max(0, Number(it.quantity) || 0);
+    if (q <= 0) continue;
+    byId[id] = (byId[id] || 0) + q;
+  }
+
+  const restored = [];
+  for (const [id, qty] of Object.entries(byId)) {
+    const product = await Product.findById(id);
+    if (!product || product.trackStock === false) continue;
+
+    const updated = await Product.findByIdAndUpdate(
+      id,
+      { $inc: { stock: qty } },
+      { new: true }
+    );
+    if (updated) {
+      await applyStockSideEffects(updated, { sendWhatsApp });
+      restored.push(updated);
+    }
+  }
+  return { products: restored };
+}
+
 /** Resumen para panel stock / campana */
 async function getStockOverview() {
   const products = await Product.find({ trackStock: { $ne: false } }).sort({ stock: 1, name: 1 });
@@ -245,6 +278,7 @@ function getUnreadAlerts() {
 
 module.exports = {
   consumeStockForOrder,
+  restoreStockForItems,
   applyStockSideEffects,
   getStockOverview,
   markAlertsRead,

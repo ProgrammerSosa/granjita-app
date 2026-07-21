@@ -3,11 +3,14 @@ const Product = require('../models/Product');
 const {
   sendOrderNotification,
   sendCustomerConfirmation,
+  sendCustomerNewOrder,
+  sendOrderUpdatedToCustomer,
+  sendMissingItemsToCustomer,
   sendOrderStatusUpdate,
 } = require('../services/whatsappService');
 const { validateOrderAllowed } = require('../services/storeService');
 const { findZone, DELIVERY_MUNICIPALITY } = require('../data/deliveryZones');
-const { consumeStockForOrder } = require('../services/stockService');
+const { consumeStockForOrder, restoreStockForItems } = require('../services/stockService');
 const { notifyOwner } = require('../services/whatsappService');
 
 const DELIVERY_FEE = 0;
@@ -464,9 +467,10 @@ exports.createOrder = async (req, res) => {
         `factura=${invoiceNumber} tel=${phoneNorm} total=Q${total}`
     );
 
-    // WhatsApp:
-    //  1) Dueño  → mensaje "HAY PEDIDO"
-    //  2) Cliente (número que pidió) → confirmación + PDF factura
+    // WhatsApp (estado "Nuevo"):
+    //  1) Cliente → mensaje corto "recibimos tu pedido, pronto un proveedor lo revisa"
+    //     (la factura se envía recién en "En proceso")
+    //  2) Dueño  → mensaje "HAY PEDIDO"
     const whatsapp = {
       owner: false,
       customer: false,
@@ -475,12 +479,11 @@ exports.createOrder = async (req, res) => {
       errors: [],
     };
 
-    // Primero al cliente (quien pidió) — PDF + mensaje
+    // Primero al cliente (quien pidió) — aviso corto, sin factura todavía
     try {
-      await sendCustomerConfirmation(order);
+      await sendCustomerNewOrder(order);
       whatsapp.customer = true;
-      whatsapp.invoicePdf = true;
-      console.log(`✅ WA cliente OK → PDF a ${phoneNorm}`);
+      console.log(`✅ WA cliente OK → aviso "pedido recibido" a ${phoneNorm}`);
     } catch (waError) {
       whatsapp.errors.push(`cliente(${phoneNorm}): ${waError.message}`);
       console.error(`❌ WA cliente ${phoneNorm}:`, waError.message);
@@ -513,9 +516,9 @@ exports.createOrder = async (req, res) => {
         createdAt: order.createdAt,
       },
       whatsapp,
-      message: whatsapp.invoicePdf
-        ? `Pedido creado. Factura PDF enviada a WhatsApp ${phoneNorm}`
-        : `Pedido creado, pero no se pudo mandar el PDF a ${phoneNorm}. Revisá que el número tenga WhatsApp.`,
+      message: whatsapp.customer
+        ? `Pedido creado. Le avisamos al cliente por WhatsApp ${phoneNorm} (la factura se envía al pasar a "En proceso").`
+        : `Pedido creado, pero no se pudo avisar al cliente por WhatsApp ${phoneNorm}. Revisá que el número tenga WhatsApp.`,
     });
   } catch (error) {
     console.error('Error al crear pedido:', error);
@@ -641,6 +644,24 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
 
+    const prevStatus = order.orderStatus;
+
+    // Cancelar un pedido que NO estaba cancelado → devolver stock al inventario
+    if (orderStatus === 'cancelled' && prevStatus !== 'cancelled') {
+      try {
+        await restoreStockForItems(
+          (order.items || []).map((it) => ({
+            product: it.product,
+            quantity: it.quantity,
+          })),
+          { sendWhatsApp: (text) => notifyOwner(text) }
+        );
+        console.log(`♻️ Stock restaurado por cancelación de #${order._id.toString().slice(-6).toUpperCase()}`);
+      } catch (stockErr) {
+        console.error('Error restaurando stock al cancelar:', stockErr.message);
+      }
+    }
+
     if (orderStatus) order.orderStatus = orderStatus;
     if (paymentStatus) order.paymentStatus = paymentStatus;
 
@@ -673,6 +694,198 @@ exports.updateOrderStatus = async (req, res) => {
     return res.status(400).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+/** Estados en los que el admin todavía puede editar los productos del pedido.
+ *  Una vez "En proceso" (preparing) el pedido se bloquea y sale la factura. */
+const EDITABLE_STATUSES = ['pending', 'confirmed'];
+
+/**
+ * Editar los productos de un pedido (admin): agregar / quitar / cambiar cantidades.
+ * Body: { items: [{ productId, variantName?, extras?, quantity, unitType? }] }
+ * Recalcula totales, ajusta el stock (delta) y avisa al cliente por WhatsApp.
+ */
+exports.updateOrderItems = async (req, res) => {
+  try {
+    const { items } = req.body;
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+
+    if (!EDITABLE_STATUSES.includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Este pedido ya no se puede modificar (solo antes de salir "En camino").',
+        code: 'not_editable',
+      });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El pedido debe quedar con al menos un producto.',
+      });
+    }
+
+    // Enriquecer los ítems nuevos (precio, variante, extras, subtotal)
+    const enrichedItems = await Promise.all(
+      items.map(async (item) => {
+        const product = await Product.findById(item.productId);
+        if (!product) {
+          throw new Error(`Producto no encontrado: ${item.productId}`);
+        }
+        const qty = Number(item.quantity) || 1;
+        if (qty <= 0) {
+          throw new Error(`Cantidad inválida para "${product.name}"`);
+        }
+
+        const variants = product.variants || [];
+        let unitPrice = product.price;
+        let variantMeta = { name: null, price: 0, kind: null };
+
+        if (variants.length > 0) {
+          const wanted = item.variantName || variants[0].name;
+          const variant = variants.find((v) => v.name === wanted);
+          if (!variant) {
+            throw new Error(`Variante no válida para "${product.name}"`);
+          }
+          unitPrice = Number(variant.price);
+          variantMeta = {
+            name: variant.name,
+            price: unitPrice,
+            kind: variant.kind === 'weight' ? 'weight' : 'unit',
+          };
+        }
+
+        const extrasTotal = (item.extras || []).reduce((sum, extraName) => {
+          const extra = (product.extras || []).find((e) => e.name === extraName);
+          return sum + (extra ? extra.price : 0);
+        }, 0);
+        unitPrice += extrasTotal;
+
+        const unitType = item.unitType || variantMeta.kind || 'unit';
+
+        return {
+          product: product._id,
+          productName: product.name,
+          variant: variantMeta,
+          extras: (item.extras || []).map((name) => {
+            const extra = (product.extras || []).find((e) => e.name === name);
+            return extra ? { name: extra.name, price: extra.price } : { name, price: 0 };
+          }),
+          quantity: qty,
+          unitPrice,
+          subtotal: Math.round(qty * unitPrice * 100) / 100,
+          unitType,
+        };
+      })
+    );
+
+    // Delta de stock por producto (viejo vs nuevo)
+    const oldById = {};
+    for (const it of order.items || []) {
+      const id = String(it.product);
+      oldById[id] = (oldById[id] || 0) + (Number(it.quantity) || 0);
+    }
+    const newById = {};
+    for (const it of enrichedItems) {
+      const id = String(it.product);
+      newById[id] = (newById[id] || 0) + (Number(it.quantity) || 0);
+    }
+
+    const increases = []; // hay que descontar más stock
+    const decreases = []; // hay que devolver stock
+    for (const id of new Set([...Object.keys(oldById), ...Object.keys(newById)])) {
+      const oldQ = oldById[id] || 0;
+      const newQ = newById[id] || 0;
+      if (newQ > oldQ) increases.push({ productId: id, quantity: newQ - oldQ });
+      else if (oldQ > newQ) decreases.push({ product: id, quantity: oldQ - newQ });
+    }
+
+    // Primero descontar lo que aumentó (valida disponibilidad; si falla, no tocamos nada)
+    if (increases.length) {
+      try {
+        await consumeStockForOrder(increases, {
+          sendWhatsApp: (text) => notifyOwner(text),
+        });
+      } catch (stockErr) {
+        return res.status(400).json({
+          success: false,
+          message: stockErr.message || 'No hay stock para los productos agregados',
+          code: 'stock',
+        });
+      }
+    }
+    // Luego devolver lo que se quitó / redujo
+    if (decreases.length) {
+      await restoreStockForItems(decreases, {
+        sendWhatsApp: (text) => notifyOwner(text),
+      });
+    }
+
+    // Recalcular y guardar
+    const subtotal = enrichedItems.reduce((s, i) => s + i.subtotal, 0);
+    order.items = enrichedItems;
+    order.subtotal = subtotal;
+    order.total = subtotal + (order.deliveryFee || 0);
+
+    // Reajustar el vuelto declarado si el total cambió (pago en efectivo)
+    if (order.paymentMethod === 'cash' && order.cashIntent?.amountTendered) {
+      order.cashIntent.change =
+        Math.round((order.cashIntent.amountTendered - order.total) * 100) / 100;
+    }
+
+    await order.save();
+
+    // Avisar al cliente el nuevo detalle / total
+    try {
+      await sendOrderUpdatedToCustomer(order);
+    } catch (e) {
+      console.warn('Aviso de modificación al cliente falló:', e.message);
+    }
+
+    return res.json({ success: true, data: order });
+  } catch (error) {
+    console.error('Error al editar pedido:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || 'No se pudo editar el pedido',
+    });
+  }
+};
+
+/**
+ * El proveedor avisa al cliente que falta algo del pedido (antes de "En proceso").
+ * Body: { items?: string[], note?: string }
+ */
+exports.notifyMissing = async (req, res) => {
+  try {
+    const { items, note } = req.body;
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Pedido no encontrado' });
+    }
+    if (!EDITABLE_STATUSES.includes(order.orderStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Solo se puede avisar antes de que el pedido pase a "En proceso".',
+        code: 'not_editable',
+      });
+    }
+    await sendMissingItemsToCustomer(order, {
+      items: Array.isArray(items) ? items : [],
+      note: (note || '').trim(),
+    });
+    return res.json({ success: true, message: 'Aviso enviado al cliente por WhatsApp' });
+  } catch (error) {
+    console.error('Error avisando falta de stock:', error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || 'No se pudo enviar el aviso',
     });
   }
 };
