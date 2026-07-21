@@ -2023,4 +2023,13 @@ module.exports = {
   hasSavedSession,
   getAuthPath,
   notifyOwner,
+  // Builders de texto (reutilizados por el motor Cloud API — solo lectura)
+  formatNewOrderCustomer,
+  formatStatusUpdate,
+  formatInvoiceText,
+  formatOrderUpdatedCustomer,
+  formatMissingItems,
+  formatDeliveredInvite,
+  formatOrderMessage,
+  formatInvoiceForDelivery,
 };

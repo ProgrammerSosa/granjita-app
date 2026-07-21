@@ -9,6 +9,7 @@ const {
   resendWhatsApp,
   listInvoices,
   downloadInvoicePdf,
+  downloadInvoicePublic,
   updateOrderItems,
   notifyMissing,
 } = require('../controllers/orderController');
@@ -27,6 +28,9 @@ router.post('/:id/notify-missing', authenticateAdmin, notifyMissing);
 router.post('/:id/cash-payment', authenticateAdmin, recordCashPayment);
 router.post('/:id/resend-whatsapp', authenticateAdmin, resendWhatsApp);
 router.get('/:id/invoice.pdf', authenticateAdmin, downloadInvoicePdf);
+
+// Público: PDF de factura por token (lo usa WhatsApp Cloud API para adjuntar el documento)
+router.get('/:id/invoice/:token', downloadInvoicePublic);
 
 // Público: crear pedido (rate limit anti-spam)
 router.post(

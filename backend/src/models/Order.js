@@ -107,6 +107,8 @@ const orderSchema = new mongoose.Schema({
   invoice: {
     number: { type: String, default: null },
     issuedAt: { type: Date, default: null },
+    // Token aleatorio para el link público del PDF (lo usa WhatsApp Cloud API)
+    publicToken: { type: String, default: null },
   },
   // Lo que el cliente DIJO que pagará (en el checkout)
   cashIntent: {

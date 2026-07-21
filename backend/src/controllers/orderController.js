@@ -1,5 +1,11 @@
+const crypto = require('crypto');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+
+/** Token aleatorio para el link público del PDF de la factura */
+function invoiceToken() {
+  return crypto.randomBytes(16).toString('hex');
+}
 const {
   sendOrderNotification,
   sendCustomerConfirmation,
@@ -7,11 +13,11 @@ const {
   sendOrderUpdatedToCustomer,
   sendMissingItemsToCustomer,
   sendOrderStatusUpdate,
-} = require('../services/whatsappService');
+  notifyOwner,
+} = require('../services/whatsappProvider');
 const { validateOrderAllowed } = require('../services/storeService');
 const { findZone, DELIVERY_MUNICIPALITY } = require('../data/deliveryZones');
 const { consumeStockForOrder, restoreStockForItems } = require('../services/stockService');
-const { notifyOwner } = require('../services/whatsappService');
 
 const DELIVERY_FEE = 0;
 
@@ -75,10 +81,17 @@ async function nextInvoiceNumber() {
 }
 
 async function ensureInvoice(order) {
-  if (order.invoice?.number) return order;
+  if (order.invoice?.number) {
+    if (!order.invoice.publicToken) {
+      order.invoice.publicToken = invoiceToken();
+      await order.save();
+    }
+    return order;
+  }
   order.invoice = {
     number: await nextInvoiceNumber(),
     issuedAt: new Date(),
+    publicToken: invoiceToken(),
   };
   await order.save();
   return order;
@@ -458,6 +471,7 @@ exports.createOrder = async (req, res) => {
       invoice: {
         number: invoiceNumber,
         issuedAt: new Date(),
+        publicToken: invoiceToken(),
       },
       ...(cashIntentData ? { cashIntent: cashIntentData } : {}),
     });
@@ -665,12 +679,17 @@ exports.updateOrderStatus = async (req, res) => {
     if (orderStatus) order.orderStatus = orderStatus;
     if (paymentStatus) order.paymentStatus = paymentStatus;
 
-    // Factura al poner "en camino"
+    // Factura al poner "en camino" (por si no se generó antes)
     if (orderStatus === 'in_transit' && !order.invoice?.number) {
       order.invoice = {
         number: await nextInvoiceNumber(),
         issuedAt: new Date(),
+        publicToken: invoiceToken(),
       };
+    }
+    // Asegurar token público del PDF si faltara (pedidos viejos)
+    if (order.invoice?.number && !order.invoice.publicToken) {
+      order.invoice.publicToken = invoiceToken();
     }
 
     // Al entregar, marcar pago cobrado si no se marcó
@@ -1019,6 +1038,32 @@ exports.downloadInvoicePdf = async (req, res) => {
   } catch (error) {
     console.error('Error PDF factura:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * PDF de factura PÚBLICO (sin login) protegido por token aleatorio.
+ * Lo usa WhatsApp Cloud API para descargar el PDF y mandárselo al cliente.
+ * URL: /api/orders/:id/invoice/:token
+ */
+exports.downloadInvoicePublic = async (req, res) => {
+  try {
+    if (!/^[a-f\d]{24}$/i.test(String(req.params.id || ''))) {
+      return res.status(404).json({ success: false, message: 'No encontrado' });
+    }
+    const order = await Order.findById(req.params.id);
+    const token = String(req.params.token || '').replace(/\.pdf$/i, '');
+    if (!order || !order.invoice?.publicToken || order.invoice.publicToken !== token) {
+      return res.status(404).json({ success: false, message: 'No encontrado' });
+    }
+    const { generateInvoicePdf } = require('../services/invoicePdfService');
+    const { filePath, fileName } = await generateInvoicePdf(order);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+    return res.sendFile(filePath);
+  } catch (error) {
+    console.error('Error PDF público:', error);
+    return res.status(500).json({ success: false, message: 'Error' });
   }
 };
 
