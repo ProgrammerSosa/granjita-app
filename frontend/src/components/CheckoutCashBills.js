@@ -7,117 +7,77 @@ import {
   billsTotal,
   billsToArray,
   formatBillsSummary,
-  formatDenom,
   getBillCount,
   setBillCount,
   emptyBillsMap,
   exactPaymentMap,
 } from '@/lib/bills';
 import { formatMoney } from '@/lib/api';
+import { BillFace, CoinFace } from '@/components/MoneyFaces';
 
-/** Billete visual con “fondo” de patrón */
+/** Billete real de quetzal, tocable para sumar */
 function BillChip({ denom, count, onAdd, onRemove, locked }) {
   const active = count > 0;
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border-2 transition-all duration-200 ${
+      className={`relative rounded-2xl border-2 overflow-hidden transition-all duration-200 ${
         locked && !active
           ? 'border-ink-800 opacity-45'
           : active
           ? 'border-primary-400 shadow-glow scale-[1.02]'
-          : 'border-ink-700/80 hover:border-primary-500/50'
+          : 'border-ink-700/80 hover:border-primary-500/60'
       }`}
     >
-      <div
-        className="absolute inset-0 opacity-90"
-        style={{
-          background: active
-            ? 'linear-gradient(135deg, #ea580c 0%, #9a3412 45%, #0a0a0a 100%)'
-            : 'linear-gradient(135deg, #2a2a2a 0%, #141414 50%, #1a1a1a 100%)',
-        }}
-      />
-      <div
-        className="absolute inset-0 opacity-30"
-        style={{
-          backgroundImage:
-            'repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(255,255,255,0.06) 6px, rgba(255,255,255,0.06) 12px)',
-        }}
-      />
-      <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full border border-white/10" />
-      <div className="absolute -left-3 -bottom-3 w-12 h-12 rounded-full border border-white/10" />
-
       <button
         type="button"
         onClick={onAdd}
         disabled={locked}
-        className="relative w-full p-3 text-left active:scale-[0.97] transition-transform disabled:active:scale-100 disabled:cursor-not-allowed"
+        className="relative block w-full aspect-[20/9] active:scale-[0.98] transition-transform disabled:active:scale-100 disabled:cursor-not-allowed"
       >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/60">
-              Billete
-            </p>
-            <p className="text-2xl font-black text-white drop-shadow-sm leading-none mt-0.5">
-              {formatDenom(denom)}
-            </p>
-          </div>
-          <div
-            className={`min-w-[2.25rem] h-9 px-2 rounded-xl flex items-center justify-center font-black text-sm border ${
-              active
-                ? 'bg-ink-950 text-primary-400 border-primary-400/40'
-                : 'bg-black/40 text-white/80 border-white/10'
-            }`}
-          >
-            {count}
-          </div>
-        </div>
-        <p className="relative text-[10px] text-white/55 mt-2 font-medium">
-          {locked ? (active ? 'Incluido' : 'Máximo alcanzado') : 'Tocá para sumar'}
-          {count > 0 ? ` · ${count}× = ${formatMoney(denom * count)}` : ''}
-        </p>
+        <BillFace denom={denom} className="absolute inset-0" />
+        {active && (
+          <span className="absolute top-1.5 left-1.5 min-w-[1.9rem] h-7 px-1.5 rounded-lg bg-ink-950/85 text-primary-300 border border-primary-400/50 flex items-center justify-center font-black text-sm backdrop-blur-sm">
+            ×{count}
+          </span>
+        )}
       </button>
-
-      {count > 0 && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="relative w-full text-[11px] font-bold py-1.5 bg-black/35 text-white/80 hover:text-white border-t border-white/10"
-        >
-          − Quitar uno
-        </button>
-      )}
+      <div className="relative bg-ink-950/90 px-2.5 py-1.5 flex items-center justify-between gap-2">
+        <p className="text-[10px] text-white/70 font-semibold truncate">
+          {locked ? (active ? 'Incluido' : 'Ya alcanza') : 'Tocá para sumar'}
+          {count > 0 ? ` · ${formatMoney(denom * count)}` : ''}
+        </p>
+        {count > 0 && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-[11px] font-bold text-white/80 hover:text-white whitespace-nowrap"
+          >
+            − Quitar
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-/** Moneda circular */
+/** Moneda metálica de quetzal, tocable para sumar */
 function CoinChip({ denom, count, onAdd, onRemove, locked }) {
   const active = count > 0;
-  const label = denom === 1 ? 'Q1' : denom === 0.5 ? '50¢' : '25¢';
   return (
     <div className="flex flex-col items-center gap-1.5">
       <button
         type="button"
         onClick={onAdd}
         disabled={locked}
-        className={`relative w-[4.5rem] h-[4.5rem] rounded-full flex flex-col items-center justify-center transition-all active:scale-95 border-4 disabled:active:scale-100 disabled:cursor-not-allowed ${
+        className={`relative w-[4.5rem] h-[4.5rem] rounded-full transition-all active:scale-95 disabled:active:scale-100 disabled:cursor-not-allowed ${
           locked && !active
-            ? 'border-ink-700 opacity-45 bg-ink-900'
+            ? 'opacity-45'
             : active
-            ? 'border-primary-400 shadow-lift bg-gradient-to-br from-primary-400 via-primary-500 to-primary-700'
-            : 'border-ink-600 bg-gradient-to-br from-ink-700 via-ink-800 to-ink-950 hover:border-primary-500/60'
+            ? 'ring-2 ring-primary-400 ring-offset-2 ring-offset-ink-900'
+            : 'hover:ring-2 hover:ring-primary-500/50 hover:ring-offset-2 hover:ring-offset-ink-900'
         }`}
-        style={{
-          boxShadow:
-            active && !locked
-              ? 'inset 0 2px 8px rgba(255,255,255,0.25), 0 8px 20px rgba(234,88,12,0.35)'
-              : 'inset 0 2px 6px rgba(255,255,255,0.08)',
-        }}
       >
-        <span className="text-[10px] font-bold text-white/70 uppercase tracking-wide">
-          mon
-        </span>
-        <span className="text-base font-black text-white leading-none">{label}</span>
+        <CoinFace denom={denom} className="w-full h-full" />
         {count > 0 && (
           <span className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-ink-950 text-primary-400 text-xs font-black flex items-center justify-center border border-primary-500">
             {count}

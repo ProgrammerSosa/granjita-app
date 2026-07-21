@@ -14,6 +14,7 @@ import {
   exactPaymentMap,
 } from '@/lib/bills';
 import { formatMoney } from '@/lib/api';
+import { BillFace, CoinFace } from '@/components/MoneyFaces';
 
 /**
  * Panel de cobro en efectivo: billetes con los que paga + vuelto + sugerencias.
@@ -147,19 +148,28 @@ export default function CashBillsPanel({
               return (
               <div
                 key={d}
-                className={`rounded-xl border p-2.5 flex items-center justify-between gap-2 ${
+                className={`rounded-xl border p-2 flex items-center justify-between gap-2 ${
                   count > 0
                     ? 'border-primary-500 bg-primary-500/10'
                     : 'border-ink-700 bg-ink-900'
                 }`}
               >
-                <div>
-                  <p className="text-[10px] text-ink-400 font-medium">
-                    {d < 1 ? 'Moneda' : 'Billete'}
-                  </p>
-                  <p className="font-black text-primary-400">{formatDenom(d)}</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  {d < 1 ? (
+                    <CoinFace denom={d} className="w-9 h-9 shrink-0" />
+                  ) : (
+                    <div className="relative w-12 h-7 rounded-md overflow-hidden shrink-0 border border-black/20">
+                      <BillFace denom={d} variant="thumb" className="absolute inset-0" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-ink-400 font-medium leading-none">
+                      {d < 1 ? 'Moneda' : 'Billete'}
+                    </p>
+                    <p className="font-black text-primary-400 leading-tight">{formatDenom(d)}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <button
                     type="button"
                     onClick={() => setCount(d, count - 1)}

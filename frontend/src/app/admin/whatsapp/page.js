@@ -198,7 +198,7 @@ export default function AdminWhatsAppPage() {
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="50254973412 (código país + número)"
+                placeholder="50259965916 (código país + número)"
                 className="input-admin flex-1"
                 disabled={busy}
               />

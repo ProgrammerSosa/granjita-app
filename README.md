@@ -56,7 +56,7 @@ También podés abrir el admin desde la tienda: **10 toques al logo** (aparece e
 
 | Dato | Valor |
 |------|--------|
-| **Número dueño (ejemplo)** | Configurado en `.env` como `OWNER_WHATSAPP` (ej. `50254973412`) |
+| **Número dueño (ejemplo)** | Configurado en `.env` como `OWNER_WHATSAPP` (ej. `50259965916`) |
 | **Vincular WhatsApp** | Solo desde **Admin → WhatsApp** (protegido con login) |
 | **Sesión guardada** | `%USERPROFILE%\.tienda-wwebjs-auth` (Windows) — **no borrar** si no querés volver a escanear |
 
@@ -200,7 +200,7 @@ No hay precio general arriba: **el precio es el de cada variante**. En la tarjet
 | `ADMIN_PASSWORD` | `emadiana123` | Login del panel |
 | `JWT_SECRET` | string largo | Firma de tokens admin |
 | `MONGODB_URI` | `mongodb://127.0.0.1:27017/tienda` | Base de datos |
-| `OWNER_WHATSAPP` | `50254973412` | WhatsApp del dueño |
+| `OWNER_WHATSAPP` | `50259965916` | WhatsApp del dueño |
 | `STORE_URL` | URL de la tienda | Links en mensajes WA |
 | `CORS_ORIGIN` | URLs del frontend | Orígenes permitidos |
 | `WA_PUBLIC_PANEL` | `false` | No exponer QR en la raíz del API |
@@ -210,7 +210,7 @@ No hay precio general arriba: **el precio es el de cada variante**. En la tarjet
 | Variable | Ejemplo | Uso |
 |----------|---------|-----|
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:5000/api` | Backend |
-| `NEXT_PUBLIC_WHATSAPP` | `50254973412` | Botón flotante WA |
+| `NEXT_PUBLIC_WHATSAPP` | `50259965916` | Botón flotante WA |
 
 ---
 

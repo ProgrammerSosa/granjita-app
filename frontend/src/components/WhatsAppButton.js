@@ -1,6 +1,7 @@
 'use client';
 
-const WHATSAPP = process.env.NEXT_PUBLIC_WHATSAPP || '';
+const WHATSAPP =
+  process.env.NEXT_PUBLIC_WHATSAPP || process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || '';
 
 export default function WhatsAppButton() {
   if (!WHATSAPP) return null;

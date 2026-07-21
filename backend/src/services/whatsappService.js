@@ -783,7 +783,7 @@ async function requestPairingCode(phoneRaw) {
 
   const digits = String(phoneRaw || '').replace(/\D/g, '');
   if (digits.length < 10 || digits.length > 15) {
-    throw new Error('Número inválido. Usá código de país, ej: 50254973412');
+    throw new Error('Número inválido. Usá código de país, ej: 50259965916');
   }
 
   // Si aún no hay QR, esperar un poco a que el cliente esté listo para pairing
