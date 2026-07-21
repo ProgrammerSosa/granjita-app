@@ -1,17 +1,9 @@
 const multer = require('multer');
 const path = require('path');
-const crypto = require('crypto');
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '../../uploads'));
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const name = crypto.randomBytes(16).toString('hex');
-    cb(null, `${name}${ext}`);
-  },
-});
+// Memoria: el archivo queda en req.file.buffer para subirlo a Cloudinary.
+// (Si Cloudinary no está configurado, la ruta lo escribe a disco como respaldo.)
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
