@@ -134,7 +134,7 @@ async function sendOrderStatusUpdate(order) {
     await notifyOwner(wa.formatInvoiceForDelivery(order));
   }
   if (order.orderStatus === 'delivered') {
-    await sendText(phone, wa.formatDeliveredInvite());
+    await sendText(phone, wa.formatDeliveredInvite(order));
   }
 }
 
