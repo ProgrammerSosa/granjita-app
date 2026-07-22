@@ -1588,14 +1588,26 @@ function formatOrderUpdatedCustomer(order) {
  * Mensaje al cliente según el nuevo estado (flujo La Granjita):
  * Nuevo → Confirmado → En proceso → En camino → Entregado
  */
-/** Invitación a pedir de nuevo (se manda cuando el pedido queda Entregado) */
-function formatDeliveredInvite() {
-  return (
+/** Invitación a pedir de nuevo + calificar (se manda cuando el pedido queda Entregado) */
+function formatDeliveredInvite(order) {
+  const base =
     `🛍️ *¿Se te antoja algo más?*\n\n` +
     `Cuando quieras hacer *otro pedido*, entrá a nuestra tienda:\n` +
     `👉 ${STORE_URL}\n\n` +
     `Es rapidísimo y te lo llevamos a la puerta 🛵\n` +
-    `¡Te esperamos! 🐔🧡`
+    `¡Te esperamos! 🐔🧡`;
+
+  const token = order?.rating?.token;
+  if (!token || !order?._id) return base;
+
+  const ratingUrl = `${STORE_URL}/calificar/${String(order._id)}?t=${token}`;
+  return (
+    base +
+    `\n\n━━━━━━━━━━━━━━━━━━━━\n` +
+    `⭐ *¿Cómo estuvo tu experiencia?*\n` +
+    `Calificanos con estrellas y un comentario (toma 1 minuto):\n` +
+    `👉 ${ratingUrl}\n` +
+    `¡Tu opinión nos ayuda un montón! 💛`
   );
 }
 
@@ -1861,7 +1873,7 @@ async function sendOrderStatusUpdate(order) {
 
     // Entregado: invitar a pedir de nuevo con el link + dejar el menú post-pedido
     if (order.orderStatus === 'delivered') {
-      await sendWaMessage(phone, formatDeliveredInvite());
+      await sendWaMessage(phone, formatDeliveredInvite(order));
       console.log(`✅ Invitación a nuevo pedido enviada al cliente ${phone}`);
       try {
         await sendAfterOrderMenu(order);

@@ -12,6 +12,8 @@ const {
   downloadInvoicePublic,
   updateOrderItems,
   notifyMissing,
+  getPublicRating,
+  submitPublicRating,
 } = require('../controllers/orderController');
 const { authenticateAdmin } = require('../middleware/auth');
 const { rateLimit } = require('../middleware/security');
@@ -31,6 +33,14 @@ router.get('/:id/invoice.pdf', authenticateAdmin, downloadInvoicePdf);
 
 // Público: PDF de factura por token (lo usa WhatsApp Cloud API para adjuntar el documento)
 router.get('/:id/invoice/:token', downloadInvoicePublic);
+
+// Público: calificación de la tienda por token (link tras la entrega)
+router.get('/:id/rating/:token', rateLimit({ windowMs: 60_000, max: 40 }), getPublicRating);
+router.post(
+  '/:id/rating/:token',
+  rateLimit({ windowMs: 10 * 60 * 1000, max: 15, message: 'Demasiados intentos. Esperá unos minutos.' }),
+  submitPublicRating
+);
 
 // Público: crear pedido (rate limit anti-spam)
 router.post(

@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import useAuthStore from '@/store/useAuthStore';
 import BrandLogo from '@/components/BrandLogo';
-import AdminAlertsBell from '@/components/AdminAlertsBell';
+import NotificationCenter from '@/components/NotificationCenter';
+import NewOrderNotifier from '@/components/NewOrderNotifier';
 
 const SIDEBAR_KEY = 'granjita_admin_sidebar_open';
 
@@ -353,7 +354,8 @@ export default function AdminLayout({ children }) {
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          <AdminAlertsBell />
+          <NewOrderNotifier />
+          <NotificationCenter />
           <Link
             href="/admin/stats"
             className="hidden sm:inline-flex text-xs font-bold px-3 py-2 rounded-xl hover:bg-white/10 text-white/90"

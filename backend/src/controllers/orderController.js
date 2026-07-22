@@ -697,6 +697,12 @@ exports.updateOrderStatus = async (req, res) => {
       order.paymentStatus = 'paid';
     }
 
+    // Al entregar: preparar el token del link público de calificación
+    if (orderStatus === 'delivered' && !order.rating?.token) {
+      order.rating = order.rating || {};
+      order.rating.token = invoiceToken();
+    }
+
     await order.save();
 
     if (orderStatus) {
@@ -1063,6 +1069,64 @@ exports.downloadInvoicePublic = async (req, res) => {
     return res.sendFile(filePath);
   } catch (error) {
     console.error('Error PDF público:', error);
+    return res.status(500).json({ success: false, message: 'Error' });
+  }
+};
+
+/**
+ * Info pública para la página de calificación (sin login), protegida por token.
+ * URL: GET /api/orders/:id/rating/:token
+ */
+exports.getPublicRating = async (req, res) => {
+  try {
+    if (!/^[a-f\d]{24}$/i.test(String(req.params.id || ''))) {
+      return res.status(404).json({ success: false, message: 'No encontrado' });
+    }
+    const order = await Order.findById(req.params.id);
+    const token = String(req.params.token || '');
+    if (!order || !order.rating?.token || order.rating.token !== token) {
+      return res.status(404).json({ success: false, message: 'No encontrado' });
+    }
+    return res.json({
+      success: true,
+      data: {
+        code: order._id.toString().slice(-6).toUpperCase(),
+        customerName: order.customer?.name || '',
+        alreadyRated: (order.rating.stars || 0) > 0,
+        stars: order.rating.stars || 0,
+        comment: order.rating.comment || '',
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Error' });
+  }
+};
+
+/**
+ * Guarda la calificación del cliente (sin login), protegida por token.
+ * URL: POST /api/orders/:id/rating/:token  body: { stars, comment }
+ */
+exports.submitPublicRating = async (req, res) => {
+  try {
+    if (!/^[a-f\d]{24}$/i.test(String(req.params.id || ''))) {
+      return res.status(404).json({ success: false, message: 'No encontrado' });
+    }
+    const order = await Order.findById(req.params.id);
+    const token = String(req.params.token || '');
+    if (!order || !order.rating?.token || order.rating.token !== token) {
+      return res.status(404).json({ success: false, message: 'No encontrado' });
+    }
+    const stars = Math.max(0, Math.min(5, parseInt(req.body?.stars, 10) || 0));
+    if (!stars) {
+      return res.status(400).json({ success: false, message: 'Elegí de 1 a 5 estrellas' });
+    }
+    order.rating.stars = stars;
+    order.rating.comment = String(req.body?.comment || '').trim().slice(0, 500);
+    order.rating.at = new Date();
+    await order.save();
+    return res.json({ success: true, message: '¡Gracias por tu calificación!' });
+  } catch (error) {
+    console.error('Error guardando calificación:', error);
     return res.status(500).json({ success: false, message: 'Error' });
   }
 };

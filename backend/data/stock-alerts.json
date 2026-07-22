@@ -9,7 +9,7 @@
   "events": [
     {
       "id": "1784597561946-v3ziu",
-      "read": false,
+      "read": true,
       "at": "2026-07-21T01:32:41.946Z",
       "type": "stock",
       "level": "low",

@@ -110,6 +110,14 @@ const orderSchema = new mongoose.Schema({
     // Token aleatorio para el link público del PDF (lo usa WhatsApp Cloud API)
     publicToken: { type: String, default: null },
   },
+  // Calificación de la tienda por el cliente (link público tras la entrega)
+  rating: {
+    stars: { type: Number, min: 0, max: 5, default: 0 },
+    comment: { type: String, default: '', trim: true, maxlength: 500 },
+    at: { type: Date, default: null },
+    // Token aleatorio para el link público de calificación
+    token: { type: String, default: null },
+  },
   // Lo que el cliente DIJO que pagará (en el checkout)
   cashIntent: {
     bills: [billLineSchema],

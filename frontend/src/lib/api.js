@@ -225,6 +225,19 @@ export async function getOrderById(id) {
   return data.data;
 }
 
+/** Calificación pública (link tras la entrega, protegido por token) */
+export async function fetchRatingInfo(id, token) {
+  const data = await request(`/orders/${id}/rating/${encodeURIComponent(token)}`);
+  return data.data;
+}
+
+export async function submitRating(id, token, { stars, comment }) {
+  return request(`/orders/${id}/rating/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    body: JSON.stringify({ stars, comment }),
+  });
+}
+
 export async function updateOrderStatus(id, statusData) {
   const data = await adminRequest(`/orders/${id}/status`, {
     method: 'PATCH',

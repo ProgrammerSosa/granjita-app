@@ -455,6 +455,22 @@ export default function AdminOrdersPage() {
                       </div>
                     )}
 
+                    {/* CALIFICACIÓN del cliente */}
+                    {order.rating?.stars > 0 && (
+                      <div className="rounded-2xl border border-primary-200 bg-primary-50/60 p-4">
+                        <p className="text-xs font-bold text-primary-700 uppercase tracking-wider mb-1">
+                          ⭐ Calificación del cliente
+                        </p>
+                        <p className="text-2xl leading-none">
+                          <span className="text-primary-500">{'★'.repeat(order.rating.stars)}</span>
+                          <span className="text-admin-300">{'★'.repeat(5 - order.rating.stars)}</span>
+                        </p>
+                        {order.rating.comment && (
+                          <p className="text-sm text-ink-700 italic mt-2">“{order.rating.comment}”</p>
+                        )}
+                      </div>
+                    )}
+
                     {/* DINERO — solo lectura del cliente */}
                     {showCash && (
                       <div>
