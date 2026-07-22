@@ -225,6 +225,11 @@ export async function getOrderById(id) {
   return data.data;
 }
 
+/** Admin: calificaciones recientes de clientes + promedio */
+export async function fetchRecentRatings(limit = 20) {
+  return adminRequest(`/orders/admin/ratings?limit=${limit}`);
+}
+
 /** Calificación pública (link tras la entrega, protegido por token) */
 export async function fetchRatingInfo(id, token) {
   const data = await request(`/orders/${id}/rating/${encodeURIComponent(token)}`);

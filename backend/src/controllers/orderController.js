@@ -1074,6 +1074,43 @@ exports.downloadInvoicePublic = async (req, res) => {
 };
 
 /**
+ * Admin: calificaciones recientes de clientes + promedio general.
+ * URL: GET /api/orders/admin/ratings?limit=20
+ */
+exports.listRatings = async (req, res) => {
+  try {
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const [orders, agg] = await Promise.all([
+      Order.find({ 'rating.stars': { $gt: 0 } })
+        .sort({ 'rating.at': -1 })
+        .limit(limit)
+        .select('customer.name rating'),
+      Order.aggregate([
+        { $match: { 'rating.stars': { $gt: 0 } } },
+        { $group: { _id: null, avg: { $avg: '$rating.stars' }, count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    return res.json({
+      success: true,
+      data: orders.map((o) => ({
+        id: o._id,
+        code: o._id.toString().slice(-6).toUpperCase(),
+        customerName: o.customer?.name || '',
+        stars: o.rating?.stars || 0,
+        comment: o.rating?.comment || '',
+        at: o.rating?.at || null,
+      })),
+      average: agg[0] ? Math.round(agg[0].avg * 10) / 10 : 0,
+      count: agg[0]?.count || 0,
+    });
+  } catch (error) {
+    console.error('Error al listar calificaciones:', error);
+    return res.status(500).json({ success: false, message: 'Error al cargar calificaciones' });
+  }
+};
+
+/**
  * Info pública para la página de calificación (sin login), protegida por token.
  * URL: GET /api/orders/:id/rating/:token
  */

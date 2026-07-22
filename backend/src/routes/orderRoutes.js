@@ -14,6 +14,7 @@ const {
   notifyMissing,
   getPublicRating,
   submitPublicRating,
+  listRatings,
 } = require('../controllers/orderController');
 const { authenticateAdmin } = require('../middleware/auth');
 const { rateLimit } = require('../middleware/security');
@@ -23,6 +24,7 @@ const router = Router();
 // Admin
 router.get('/admin/stats', authenticateAdmin, getAdminStats);
 router.get('/admin/invoices', authenticateAdmin, listInvoices);
+router.get('/admin/ratings', authenticateAdmin, listRatings);
 router.get('/admin', authenticateAdmin, getAllOrders);
 router.patch('/:id/status', authenticateAdmin, updateOrderStatus);
 router.patch('/:id/items', authenticateAdmin, updateOrderItems);

@@ -6,11 +6,13 @@ import {
   fetchAdminAlerts,
   markAdminAlertsRead,
   fetchAllOrders,
+  fetchRecentRatings,
   formatMoney,
 } from '@/lib/api';
 
-const ORDERS_SEEN_KEY = 'granjita_nc_orders_seen'; // timestamp ms
-const ALERTS_SEEN_KEY = 'granjita_nc_alerts_seen'; // JSON: array de ids vistos
+const ORDERS_SEEN_KEY = 'granjita_nc_orders_seen';   // timestamp ms
+const RATINGS_SEEN_KEY = 'granjita_nc_ratings_seen'; // timestamp ms
+const ALERTS_SEEN_KEY = 'granjita_nc_alerts_seen';   // JSON: ids de stock vistos
 const POLL_MS = 30_000;
 
 const TABS = [
@@ -32,21 +34,35 @@ function timeAgo(iso) {
   }
 }
 
+function StarRow({ stars }) {
+  return (
+    <span className="text-sm leading-none">
+      <span className="text-primary-500">{'★'.repeat(stars)}</span>
+      <span className="text-admin-300">{'★'.repeat(Math.max(0, 5 - stars))}</span>
+    </span>
+  );
+}
+
 export default function NotificationCenter() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState('notif');
   const [alerts, setAlerts] = useState({ low: [], out: [], events: [] });
   const [orders, setOrders] = useState([]);
+  const [ratings, setRatings] = useState([]);
+  const [ratingAvg, setRatingAvg] = useState(0);
+  const [ratingCount, setRatingCount] = useState(0);
   const [ordersSeen, setOrdersSeen] = useState(0);
+  const [ratingsSeen, setRatingsSeen] = useState(0);
   const [alertsSeen, setAlertsSeen] = useState(() => new Set());
   const ref = useRef(null);
 
-  // cargar preferencias de "visto"
   useEffect(() => {
     try {
       const os = localStorage.getItem(ORDERS_SEEN_KEY);
-      setOrdersSeen(os ? Number(os) : Date.now()); // primera vez: no marcar históricos
+      setOrdersSeen(os ? Number(os) : Date.now());
+      const rs = localStorage.getItem(RATINGS_SEEN_KEY);
+      setRatingsSeen(rs ? Number(rs) : Date.now());
       const as = localStorage.getItem(ALERTS_SEEN_KEY);
       if (as) setAlertsSeen(new Set(JSON.parse(as)));
     } catch {
@@ -56,12 +72,18 @@ export default function NotificationCenter() {
 
   const load = useCallback(async () => {
     try {
-      const [a, o] = await Promise.all([
+      const [a, o, r] = await Promise.all([
         fetchAdminAlerts(),
         fetchAllOrders({ limit: 12 }),
+        fetchRecentRatings(20).catch(() => null),
       ]);
       setAlerts(a || { low: [], out: [], events: [] });
       setOrders(o?.data || []);
+      if (r) {
+        setRatings(r.data || []);
+        setRatingAvg(r.average || 0);
+        setRatingCount(r.count || 0);
+      }
     } catch {
       /* silencioso */
     }
@@ -89,8 +111,12 @@ export default function NotificationCenter() {
   const unreadNotif = orders.filter(
     (o) => new Date(o.createdAt).getTime() > ordersSeen
   ).length;
-  const unreadMsg = events.filter((e) => !e.read).length;
-  const unreadAlert = stockItems.filter((p) => !alertsSeen.has(String(p.id))).length;
+  const unreadMsg = ratings.filter(
+    (r) => r.at && new Date(r.at).getTime() > ratingsSeen
+  ).length;
+  const unreadAlert =
+    stockItems.filter((p) => !alertsSeen.has(String(p.id))).length +
+    events.filter((e) => !e.read).length;
   const totalUnread = unreadNotif + unreadMsg + unreadAlert;
 
   const markSeen = useCallback(
@@ -100,6 +126,14 @@ export default function NotificationCenter() {
         setOrdersSeen(ts);
         try {
           localStorage.setItem(ORDERS_SEEN_KEY, String(ts));
+        } catch {
+          /* ignore */
+        }
+      } else if (which === 'msg') {
+        const ts = Date.now();
+        setRatingsSeen(ts);
+        try {
+          localStorage.setItem(RATINGS_SEEN_KEY, String(ts));
         } catch {
           /* ignore */
         }
@@ -114,7 +148,6 @@ export default function NotificationCenter() {
           }
           return next;
         });
-      } else if (which === 'msg') {
         try {
           await markAdminAlertsRead();
           await load();
@@ -129,7 +162,7 @@ export default function NotificationCenter() {
   function openPanel() {
     const next = !open;
     setOpen(next);
-    if (next) markSeen(tab); // al abrir, marca la pestaña activa
+    if (next) markSeen(tab);
   }
 
   function switchTab(k) {
@@ -171,7 +204,6 @@ export default function NotificationCenter() {
 
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-w-[92vw] rounded-2xl bg-white text-admin-900 shadow-2xl border border-admin-200 z-50 overflow-hidden">
-          {/* Pestañas */}
           <div className="flex border-b border-admin-100 bg-admin-50">
             {TABS.map((t) => {
               const c = countFor(t.key);
@@ -239,34 +271,62 @@ export default function NotificationCenter() {
                 </ul>
               ))}
 
-            {/* MENSAJE — eventos de WhatsApp / sistema */}
-            {tab === 'msg' &&
-              (events.length === 0 ? (
-                <Empty text="No hay mensajes nuevos 💬" />
-              ) : (
-                <ul className="divide-y divide-admin-100">
-                  {events.slice(0, 20).map((e) => (
-                    <li
-                      key={e.id}
-                      className={`px-4 py-3 ${e.read ? '' : 'bg-primary-50/40'}`}
-                    >
-                      <p className="text-[13px] text-admin-800 leading-snug">
-                        {!e.read && (
-                          <span className="inline-block w-2 h-2 rounded-full bg-primary-500 mr-1.5 align-middle" />
-                        )}
-                        {e.message}
-                      </p>
-                      {e.at && (
-                        <p className="text-[10px] text-admin-400 mt-0.5">{timeAgo(e.at)}</p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ))}
+            {/* MENSAJE — calificaciones de clientes */}
+            {tab === 'msg' && (
+              <>
+                {ratingCount > 0 && (
+                  <div className="px-4 py-2.5 bg-primary-50/60 border-b border-primary-100 flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-primary-700 uppercase tracking-wide">
+                      Promedio de la tienda
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <StarRow stars={Math.round(ratingAvg)} />
+                      <span className="text-xs font-black text-primary-700">
+                        {ratingAvg} · {ratingCount}
+                      </span>
+                    </span>
+                  </div>
+                )}
+                {ratings.length === 0 ? (
+                  <Empty text="Todavía no hay calificaciones ⭐" />
+                ) : (
+                  <ul className="divide-y divide-admin-100">
+                    {ratings.map((r) => {
+                      const isNew = r.at && new Date(r.at).getTime() > ratingsSeen;
+                      return (
+                        <li
+                          key={r.id}
+                          className={`px-4 py-3 ${isNew ? 'bg-primary-50/60' : ''}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-bold text-admin-900">
+                              {isNew && (
+                                <span className="inline-block w-2 h-2 rounded-full bg-primary-500 mr-1.5 align-middle" />
+                              )}
+                              {r.customerName || 'Cliente'}
+                            </p>
+                            <StarRow stars={r.stars} />
+                          </div>
+                          {r.comment && (
+                            <p className="text-[13px] text-admin-700 italic mt-1 leading-snug">
+                              “{r.comment}”
+                            </p>
+                          )}
+                          <p className="text-[10px] text-admin-400 mt-1">
+                            #{r.code}
+                            {r.at ? ` · ${timeAgo(r.at)}` : ''}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
+            )}
 
-            {/* ALERTAS — stock */}
+            {/* ALERTAS — stock + eventos del sistema */}
             {tab === 'alert' &&
-              (stockItems.length === 0 ? (
+              (stockItems.length === 0 && events.length === 0 ? (
                 <Empty text="Todo el stock está bien 🌿" />
               ) : (
                 <ul className="divide-y divide-admin-100">
@@ -296,6 +356,12 @@ export default function NotificationCenter() {
                           Quedan {p.stock} (aviso ≤ {p.lowStockThreshold})
                         </p>
                       </button>
+                    </li>
+                  ))}
+                  {events.slice(0, 10).map((e) => (
+                    <li key={e.id} className="px-4 py-2.5 bg-admin-50/50">
+                      <p className="text-[11px] text-admin-600 leading-snug">{e.message}</p>
+                      {e.at && <p className="text-[10px] text-admin-400 mt-0.5">{timeAgo(e.at)}</p>}
                     </li>
                   ))}
                 </ul>
