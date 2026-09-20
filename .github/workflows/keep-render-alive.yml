@@ -1,0 +1,27 @@
+name: Mantener Render activo
+
+on:
+  schedule:
+    - cron: '*/12 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Despertar y comprobar backend
+        env:
+          BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
+        run: |
+          test -n "$BACKEND_URL"
+          curl --fail --silent --show-error --max-time 60 \
+            "$BACKEND_URL/api/health" > /dev/null
+
+      - name: Despertar y comprobar frontend
+        env:
+          FRONTEND_URL: ${{ secrets.RENDER_FRONTEND_URL }}
+        run: |
+          test -n "$FRONTEND_URL"
+          curl --fail --silent --show-error --max-time 60 \
+            "$FRONTEND_URL" > /dev/null

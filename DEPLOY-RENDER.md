@@ -168,10 +168,23 @@ Checklist:
 
 ## 6. Free tier de Render — cosas a saber
 
-1. **Cold start:** si nadie usa el servicio ~15 min, se duerme. El primer request puede tardar 30–60 s.  
+1. **Cold start:** si nadie usa el servicio ~15 min, se duerme. El primer request puede tardar 30–60 s. Un ping desde el propio servidor no lo evita porque el servidor dormido no puede ejecutarlo.
 2. **Dos servicios free** (front + back) cuentan en tu plan.  
 3. Los **discos se reinician** en redeploy: fotos en `uploads/` y sesión WhatsApp no son permanentes sin disco persistente de pago.  
 4. **WhatsApp:** dejá `WHATSAPP_ENABLED=false` en Render. Conectar WA es más fiable en un PC o VPS. La tienda funciona igual.
+
+### Mantenerlo activo con GitHub Actions
+
+El repositorio incluye `.github/workflows/keep-render-alive.yml`. GitHub consultará el backend y el frontend cada 12 minutos desde fuera de Render.
+
+En GitHub, abrí **Settings → Secrets and variables → Actions → New repository secret** y agregá:
+
+| Secret | Valor |
+|--------|-------|
+| `RENDER_BACKEND_URL` | `https://granjita-backend.onrender.com` |
+| `RENDER_FRONTEND_URL` | `https://granjita-frontend.onrender.com` |
+
+Después, en **Actions → Mantener Render activo**, ejecutá **Run workflow** una vez para verificarlo. El cron de GitHub puede retrasarse algunos minutos y Render puede cambiar las reglas del plan gratuito; por eso esto reduce los apagados, pero no garantiza disponibilidad permanente.
 
 ---
 
