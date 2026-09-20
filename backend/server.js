@@ -1,3 +1,5 @@
+const { startKeepAlive } = require('./helpers/keepAlive');
+
 // ── Escudo anti-crash de Puppeteer/WhatsApp (ANTES de todo) ──
 // Sin esto, un error de Chrome tras "ready" tira el proceso y nodemon dice "app crashed"
 function isWaNoise(err) {
@@ -330,6 +332,7 @@ mongoose.connect(process.env.MONGODB_URI)
     app.listen(PORT, () => {
       console.log(`Servidor corriendo en puerto ${PORT}`);
       console.log(`Health: http://127.0.0.1:${PORT}/api/health`);
+      startKeepAlive();
       // WhatsApp en segundo plano: si falla Puppeteer, la API no se cae
       setImmediate(() => {
         startWhatsApp().catch((e) => {
